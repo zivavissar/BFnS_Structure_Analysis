@@ -1,0 +1,18 @@
+CPP = g++ -DNDEBUG -O3
+CC = g++ -O3
+LDLIBS += -lm
+CFLAGS += -Wall -Wno-deprecated -DNDEBUG -bstatic
+
+all : bfss_iter
+
+clean :
+	rm -f *.o bfss_iter *~
+
+bfss_iter: main.cpp graph_vector.h tools.h community.h dimension.h
+	$(CPP) --static -o $@ $^
+
+%.o: %.cpp %.h
+	$(CPP) -o $@ -c $<
+
+%.cpp: %.lex
+	lex -+ -o $@ $<
