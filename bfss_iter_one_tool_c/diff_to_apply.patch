@@ -1,0 +1,2581 @@
+diff --git a/Makefile b/Makefile
+index c07dc1d..41c8e2d 100644
+--- a/Makefile
++++ b/Makefile
+@@ -3,7 +3,7 @@
+ # 	BUILD=RELEASE/DEBUG
+ 
+ # Architecture required by ABC
+-CPP_FLAGS += -DLIN64
++CPP_FLAGS += -DLIN64 --static
+ 
+ BFSS 	= bfss
+ RCNF  	= readCnf
+@@ -29,29 +29,15 @@ TARGET_VRFY  = $(BINDIR)/$(VRFY)
+ TARGET_RSUB  = $(BINDIR)/$(RSUB)
+ 
+ ABC_INCLUDES = -I $(ABC_PATH) -I $(ABC_PATH)/src
+-UGEN_INCLUDES = -I $(SCALMC_PATH)/build/cmsat5-src/ -I $(SCALMC_PATH)/src/
+ LIB_DIRS = -L $(SCALMC_PATH)/build/lib/ -L $(ABC_PATH)/
+-DIR_INCLUDES = $(ABC_INCLUDES) $(UGEN_INCLUDES) $(LIB_DIRS)
++# DIR_INCLUDES = $(ABC_INCLUDES) $(UGEN_INCLUDES) $(LIB_DIRS)
++DIR_INCLUDES = $(ABC_INCLUDES) $(LIB_DIRS)
+ 
+-LIB_UGEN   = -Wl,-Bdynamic -lcryptominisat5
+ LIB_ABC    = -Wl,-Bstatic  -labc
+-LIB_COMMON = -Wl,-Bdynamic -lm -ldl -lreadline -ltermcap -lpthread -fopenmp -lrt -Wl,-Bdynamic -lboost_program_options -Wl,-Bdynamic -lz
+-
+-ifeq ($(UNIGEN), NO)
++LIB_COMMON = -Wl,-Bstatic  -lm -ldl -lreadline -ltermcap -lpthread -fopenmp -lrt -Wl,-Bstatic  -lboost_program_options -Wl,-Bstatic  -lz
+ CPP_FLAGS += -std=c++11 -DNO_UNIGEN
+ LFLAGS    = $(DIR_INCLUDES) $(LIB_ABC) $(LIB_COMMON)
+-else
+-CPP_FLAGS += -std=c++11
+-LFLAGS    = $(DIR_INCLUDES) $(LIB_ABC) $(LIB_UGEN) $(LIB_COMMON)
+-endif
+-
+-ifeq ($(BUILD),DEBUG)
+-CPP_FLAGS += -O0 -g
+-else ifeq ($(BUILD),RELEASE)
+-CPP_FLAGS += -O3 -s -DNDEBUG
+-else
+ CPP_FLAGS += -O3
+-endif
+ 
+ COMMON_SOURCES  = $(SRCDIR)/nnf.cpp $(SRCDIR)/helper.cpp
+ 
+diff --git a/dependencies/abc b/dependencies/abc
+--- a/dependencies/abc
++++ b/dependencies/abc
+@@ -1 +1 @@
+-Subproject commit 2483086a416a2db9f1f2a5626a238d53d713f2b4
++Subproject commit 2483086a416a2db9f1f2a5626a238d53d713f2b4-dirty
+diff --git a/src/bfss.cpp b/src/bfss.cpp
+index af73a4e..a169d26 100644
+--- a/src/bfss.cpp
++++ b/src/bfss.cpp
+@@ -19,11 +19,6 @@ Abc_Frame_t* pAbc = NULL;
+ sat_solver* m_pSat = NULL;
+ Cnf_Dat_t* m_FCnf = NULL;
+ lit m_f = 0;
+-double sat_solving_time = 0;
+-double verify_sat_solving_time = 0;
+-double reverse_sub_time = 0;
+-chrono_steady_time helper_time_measure_start = TIME_NOW;
+-chrono_steady_time main_time_start = TIME_NOW;
+ 
+ ////////////////////////////////////////////////////////////////////////
+ ///                            MAIN                                  ///
+@@ -35,175 +30,46 @@ int main(int argc, char * argv[]) {
+ 	map<int, string> id2NameF;
+ 	int i, j;
+ 	vector<int> cex;
+-
+ 	parseOptions(argc, argv);
+-
+-	main_time_start = TIME_NOW;
+-	auto main_end = TIME_NOW;
+-	double total_main_time;
+-
+-	OUT("get FNtk..." );
+ 	Abc_Ntk_t* FNtk = getNtk(options.benchmark,true);
+-	OUT("get FAig..." );
+ 	Aig_Man_t* FAig = Abc_NtkToDar(FNtk, 0, 0);
+-
+ 	int removed_first = Aig_ManCleanup(FAig);
+-	cout << "Removed " << removed_first << " in the first cleanup" << endl;
+-
+ 	vector<int> unate;
+ 	int numTotUnates = 0;
+-	if(!options.noUnate) {
+-
+-		cout << "\n\nChecking Unates..." << endl;
+-
+-		varsXF.clear();
+-		varsYF.clear();
+-		name2IdF.clear();
+-		id2NameF.clear();
+-
+-		vector<string> varOrder;
+-
+-		cout << "populateVars" << endl;
+-		populateVars(FNtk, options.varsOrder, varOrder,
+-						varsXF, varsYF,
+-						name2IdF, id2NameF);
+-
+-		cout << "numX " << numX << endl;
+-		cout << "numY " << numY << endl;
+-
+-		unate.resize(numY, -1);
+-		auto unate_start = TIME_NOW;
+-
+-		// find unates, substitute
+-		int n, numSynUnates = 0;
+-		if(!options.noSyntacticUnate ) {
+-			while((n = checkUnateSyntacticAll(FAig, unate)) > 0) {
+-				substituteUnates(FAig, unate);
+-				numSynUnates += n;
+-			}
+-		}
+-		cout << "Syntactic Unates Done" << endl;
+-		int numSemUnates = 0;
+-		//int numSemUnates1 = 0;
+-		if(!options.noSemanticUnate ) {	//Semantic Unate checks on the remaining variables - SS
+-			numSemUnates = checkUnateSemAll (FAig, unate);
+-			//numSemUnates1 = checkUnateSemanticAll(FAig, unate1);
+-			//assert (numSemUnates == numSemUnates1);
+-			substituteUnates(FAig, unate);
+-		}
+-
+-		numTotUnates = numSynUnates + numSemUnates;
+-		auto unate_end = TIME_NOW;
+-		auto unate_run_time = std::chrono::duration_cast<std::chrono::microseconds>(unate_end - unate_start).count()/1000000.0;
+-		cout << "Total Syntactic Unates: " << numSynUnates << endl;
+-		cout << "Total Semantic  Unates: " << numSemUnates << endl;
+-		cout << "Total Unate Run-Time:   " << unate_run_time << endl;
+-
+-		cout << "Unates: ";
+-		for (int i = 0; i < numY; ++i)
+-			cout << unate[i] << " ";
+-		cout << endl;
++	varsXF.clear();
++	varsYF.clear();
++	name2IdF.clear();
++	id2NameF.clear();
++	vector<string> varOrder;
++	populateVars(FNtk, options.varsOrder, varOrder,
++					varsXF, varsYF,
++					name2IdF, id2NameF);
++	unate.resize(numY, -1);
+ 
+-		// cleanup after unates
+-		varsXF.clear();
+-		varsYF.clear();
+-		name2IdF.clear();
+-		id2NameF.clear();
++	// find unates, substitute
++	int n, numSynUnates = 0;
++	while((n = checkUnateSyntacticAll(FAig, unate, id2NameF)) > 0) {
++		substituteUnates(FAig, unate);
++		numSynUnates += n;
+ 	}
+-
+-	
++	int numSemUnates = 0;
++	numSemUnates = checkUnateSemAll (FAig, unate, id2NameF);
++	substituteUnates(FAig, unate);
++	numTotUnates = numSynUnates + numSemUnates;
++	// cleanup after unates
++	varsXF.clear();
++	varsYF.clear();
++	name2IdF.clear();
++	id2NameF.clear();
+ 	Nnf_Man nnfNew;
+-	if(options.useBDD) {
+-		// ************************
+-		// Creating BDD Start
+-		Abc_Ntk_t* FNtkSmall = Abc_NtkFromAigPhase(FAig);
+-		cout << "Creating BDD..." << endl;
+-		TIME_MEASURE_START
+-		// Abc_NtkBuildGlobalBdds(FNtkSmall, int fBddSizeMax, int fDropInternal, int fReorder, int fVerbose );
+-		DdManager* ddMan = (DdManager*)Abc_NtkBuildGlobalBdds(FNtkSmall, 1e10, 1, 1, 1);
+-		auto bdd_end = TIME_NOW;
+-		cout << "Created BDD!" << endl;
+-		DdNode* FddNode = (DdNode*)Abc_ObjGlobalBdd(Abc_NtkCo(FNtkSmall,0));
+-		cout << "Time taken:   " << TIME_MEASURE_ELAPSED << endl;
+-		cout << "BDD Size:     " << Cudd_DagSize(FddNode) << endl;
+-		assert(ddMan->size == Abc_NtkCiNum(FNtkSmall));
+-		// Creating BDD End
+-		// **************************
+-		
+-		nnfNew.init(ddMan, FddNode);
+-		cout << "Created NNF from BDD" << endl;
+-	}
+-	else {
+-		nnfNew.init(FAig);
+-		cout << "Created NNF from FAig" << endl;
+-	}
+-
+-	// <<<<<<< HEAD
+-	// Nnf_Man nnfNew(FAig);
+-
+-	// int numYforClouds = getNumY(options.varsOrder);
+-	// Aig_Man_t* SAig = nnfNew.createAigMultipleClouds(2*numYforClouds, CiCloudIth, CoIth);
+-
+-	// cout << "\n\nMultiple Cloud Aig: " << endl;
+-	// printAig(SAig);
+-
+-	// // Aig_Man_t* normalAig = nnfNew.createAigWithoutClouds();
+-	// // cout << "\n\nNormal Aig: " << endl;
+-	// // printAig(normalAig);
+-
+-
+-	// numOrigInputs = nnfNew.getCiNum();
+-	// =======
+-
+-
+-	// Aig_Man_t* cloudAig = nnfNew.createAigWithClouds();
+-	// cout << "\n\nCloud Aig: " << endl;
+-	// printAig(cloudAig);
+-
+-	// Aig_Man_t* multiCloudAig = nnfNew.createAigMultipleClouds(4);
+-	// cout << "\n\nMultiple Cloud Aig: " << endl;
+-	// printAig(multiCloudAig);
+-
+-	// Aig_Man_t* normalAig = nnfNew.createAigWithoutClouds();
+-	// cout << "\n\nNormal Aig: " << endl;
+-	// printAig(normalAig);
+-
++	nnfNew.init(FAig);
+ 	numOrigInputs = nnfNew.getCiNum();
+ 	Aig_Man_t* SAig = nnfNew.createAigWithoutClouds();
+-
+-	OUT("Aig_ManCoNum(SAig): " << Aig_ManCoNum(SAig));
+ 	populateVars(FNtk, nnfNew, options.varsOrder,
+ 					varsXF, varsXS,
+ 					varsYF, varsYS,
+ 					name2IdF, id2NameF);
+-
+ 	if(options.noUnate) unate.resize(numY, -1);
+-
+-	cout << "numX " << numX << endl;
+-	cout << "numY " << numY << endl;
+-	cout << "numUnate " << numY - count(unate.begin(), unate.end(), -1) << endl;
+-	cout << "numOrigInputs " << numOrigInputs << endl;
+-
+-	#ifdef DEBUG_CHUNK // Print varsXS, varsYS
+-		cout << "varsXF: " << endl;
+-		for(auto it : varsXF)
+-		    cout << it << " ";
+-		cout<<endl;
+-		cout << "varsYF: " << endl;
+-		for(auto it : varsYF)
+-		    cout << it << " ";
+-		cout<<endl;
+-
+-		cout << "varsXS: " << endl;
+-		for(auto it : varsXS)
+-			cout << it << " ";
+-		cout<<endl;
+-		cout << "varsYS: " << endl;
+-		for(auto it : varsYS)
+-			cout << it << " ";
+-		cout<<endl;
+-	#endif
+-
+ 	assert(numX + numY == numOrigInputs);
+ 
+ 	// Populate Input Name Vectors (Same for SAig and FAig)
+@@ -213,14 +79,10 @@ int main(int argc, char * argv[]) {
+ 		varsNameX.push_back(id2NameF[id]);
+ 	for(auto id:varsYF)
+ 		varsNameY.push_back(id2NameF[id]);
+-
+-	OUT("Cleaning up...");
+ 	int removed = Aig_ManCleanup(SAig);
+-	OUT("Removed "<<removed<<" nodes");
+ 
+ 	bool isWDNNF = (numTotUnates == numY); //false;
+ 	if(options.checkWDNNF && (! isWDNNF)) {
+-		// populate varsYNNF: vector of input numbers
+ 		vector<int> varsYNNF;
+ 		for(auto y:varsYF) {
+ 			int i;
+@@ -230,57 +92,23 @@ int main(int argc, char * argv[]) {
+ 			assert(i != nnfNew.getCiNum());
+ 			varsYNNF.push_back(i);
+ 		}
+-
+-		cout << "Checking wDNNF" << endl;
+ 		isWDNNF = nnfNew.isWDNNF(varsYNNF);
+ 	}
+-	if(isWDNNF) {
+-		cout << "********************************" << endl;
+-		cout << "** In wDNNF!" << endl;
+-		cout << "** Will Predict Exact Skolem Fns" << endl;
+-		cout << "********************************" << endl;
+-	}
+-	else {
+-		cout << "********************************" << endl;
+-		cout << "** Not wDNNF :(" << endl;
+-		cout << "********************************" << endl;
+-	}
+ 
+-	Aig_ManPrintStats( SAig );
+-	cout << "Compressing SAig..." << endl;
+ 	SAig = compressAigByNtkMultiple(SAig, 3);
+ 	assert(SAig != NULL);
+-	Aig_ManPrintStats( SAig );
+ 
+-	// Fs[0] - F_SAig      will always be Aig_ManCo( ... , 1)
+-	// Fs[1] - FPrime_SAig will always be Aig_ManCo( ... , 2)
+ 	vector<Aig_Obj_t* > Fs(2);
+ 	vector<vector<int> > r0(numY), r1(numY);
+-	cout << "initializeCompose(SAig, Fs, r0, r1)..."<<endl;
+ 	clock_t compose_start = clock();
+ 	initializeCompose(SAig, Fs, r0, r1, unate);
+ 	clock_t compose_end = clock();
+-	cout<< "Mega compose time: " <<double(compose_end-compose_start)/CLOCKS_PER_SEC << endl;
+ 
+ 	Aig_Obj_t* F_SAig = Fs[0];
+ 	Aig_Obj_t* FPrime_SAig = Fs[1];
+ 	Aig_ManSetCioIds(SAig);
+ 	F_SAigIndex = F_SAig->CioId;
+ 	FPrime_SAigIndex = FPrime_SAig->CioId;
+-	cout << "F_SAigIndex: " << F_SAigIndex << endl;
+-	cout << "FPrime_SAigIndex: " << FPrime_SAigIndex << endl;
+-
+-	if(options.monoSkolem) {
+-		monoSkolem(SAig, r0, r1);
+-		main_end = TIME_NOW;
+-		total_main_time = std::chrono::duration_cast<std::chrono::microseconds>(main_end - main_time_start).count()/1000000.0;
+-		cout << "Found Skolem Functions" << endl;
+-		cout<< "Total main time: (monoskolem)   " << total_main_time << endl;
+-		chooseR_(SAig,r0,r1);
+-		verifyResult(SAig, r0, r1, 0);
+-		cout<< "Verify SAT solving time: " << verify_sat_solving_time << endl;
+-		return 1;
+-	}
+ 
+ 	// Patch 0th Output of SAig (is taking un-necessary size)
+ 	Aig_ObjPatchFanin0(SAig, Aig_ManCo(SAig,0), Aig_ManConst0(SAig));
+@@ -293,21 +121,6 @@ int main(int argc, char * argv[]) {
+ 		addCnfToSolver(m_pSat, m_FCnf);
+ 	}
+ 
+-	#ifdef DEBUG_CHUNK // Print SAig, checkSupportSanity
+-		cout << "\nSAig: " << endl;
+-		Abc_NtkForEachObj(SNtk,pAbcObj,i)
+-			cout <<"SAig Node "<<i<<": " << Abc_ObjName(pAbcObj) << endl;
+-
+-		cout << "\nSAig: " << endl;
+-		Aig_ManForEachObj( SAig, pAigObj, i )
+-			Aig_ObjPrintVerbose( pAigObj, 1 ), printf( "\n" );
+-
+-		cout << "checkSupportSanity(SAig, r0, r1)..."<<endl;
+-		checkSupportSanity(SAig, r0, r1);
+-	#endif
+-	cout << "Created SAig..." << endl;
+-	cout << endl;
+-
+ 	options.c1 = (options.c1 >= numY)? numY - 1 : options.c1;
+ 	options.c2 = (options.c2 >= numY)? numY - 1 : options.c2;
+ 
+@@ -323,98 +136,29 @@ int main(int argc, char * argv[]) {
+ 			case (sType::skolemRx): propagateR0R1Cofactors(SAig,r0,r1); break;
+ 		}
+ 	chooseR_(SAig,r0,r1);
+-	cout << endl;
+-
+-	Aig_ManPrintStats( SAig );
+-	cout << "Compressing SAig..." << endl;
+ 	SAig = compressAigByNtkMultiple(SAig, 2);
+ 	assert(SAig != NULL);
+-	Aig_ManPrintStats( SAig );
+-	#ifdef DEBUG_CHUNK // Print SAig, checkSupportSanity
+-		cout << "\nSAig: " << endl;
+-		Aig_ManForEachObj( SAig, pAigObj, i )
+-			Aig_ObjPrintVerbose( pAigObj, 1 ), printf( "\n" );
+-
+-		cout << "checkSupportSanity(SAig, r0, r1)..."<<endl;
+-		checkSupportSanity(SAig, r0, r1);
+-	#endif
+-
+-	// cex = vector<int>(2*numOrigInputs, 0);
+ 	int M = -1;
+ 	int k1Level = -1;
+ 	int k1MaxLevel = -1;
+ 	int numloops = 0;
+ 
+-	if(isWDNNF) {
+-		cout << "In WDNNF, Skipping CEGAR Loop..."<<endl;
+-	}
+-	else if(options.skipCegar) {
+-		cout << "skipCegar is set, Skipping CEGAR Loop..."<<endl;
+-	}
+-	else {
++	if(!isWDNNF) {
+ 		// CEGAR Loop
+-		cout << "Starting CEGAR Loop..."<<endl;
+-		// while(callSATfindCEX(SAig, cex, r0, r1)) {
+ 		while(getNextCEX(SAig, M, k1Level, k1MaxLevel, r0, r1)) {
+-			OUT("Iter " << numloops << ":\tFound CEX!");
+-			// cout<<'.'<<flush;
+-			// evaluateAig(SAig, cex);
+-			#ifdef DEBUG_CHUNK
+-				checkCexSanity(SAig, cex, r0, r1);
+-			#endif
+-			updateAbsRef(SAig, M, k1Level, k1MaxLevel, r0, r1);
++			updateAbsRef(SAig, M, k1Level, k1MaxLevel, r0, r1, numloops, id2NameF);
+ 			numloops++;
+-
+ 			if(numloops % 50 == 0) {
+-				cout << numloops;
+-				cout << endl;
+-				Aig_ManPrintStats( SAig );
+-				cout << "Compressing SAig..." << endl;
+ 				SAig = compressAigByNtk(SAig);
+-				// SAig = compressAig(SAig);
+ 				assert(SAig != NULL);
+-				Aig_ManPrintStats( SAig );
+ 			}
+ 		}
+-		cout<<endl;
+ 	}
+ 
+-
+-	#ifdef DEBUG_CHUNK // Print SAig
+-		cout << "\nSAig: " << endl;
+-		Aig_ManForEachObj( SAig, pAigObj, i )
+-			Aig_ObjPrintVerbose( pAigObj, 1 ), printf( "\n" );
+-	#endif
+-
+-	// printK2Trend();
+-
+-	cout << "Found Skolem Functions" << endl;
+-	cout << "Num Iterations: " << numloops << endl;
+-	cout << "Num Fixes:      " << numFixes << endl;
+-	cout << "Num CEX:        " << numCEX << endl;
+-	cout << "Num CEX Used:   " << numCEXUsed << endl;
+-	cout << "Total Size: ";
+-	Aig_ManPrintStats(SAig);
+-	cout << endl;
+-
+-
+-	main_end = TIME_NOW;
+-	total_main_time = std::chrono::duration_cast<std::chrono::microseconds>(main_end - main_time_start).count()/1000000.0;
+-	cout<< "Total main time:         " << total_main_time << endl;
+-	cout<< "Total SAT solving time:  " << sat_solving_time << endl;
+-	#ifndef NO_UNIGEN
+-	cout<< "Total Dead time:         " << CMSat::CUSP::totalDeadTime << endl;
+-	#else
+-	cout<< "Total Dead time:         " << 0 << endl;
+-	#endif
+-
+-	verifyResult(SAig, r0, r1, 0);
+-	cout<< "Verify SAT solving time: " << verify_sat_solving_time << endl;
+-
+ 	if(m_pSat!=NULL) sat_solver_delete(m_pSat);
+ 	if(m_FCnf!=NULL) Cnf_DataFree(m_FCnf);
+-
+ 	// Stop ABC
+ 	Abc_Stop();
++
+ 	return 0;
+ }
+diff --git a/src/genVarOrder.cpp b/src/genVarOrder.cpp
+index a1c6fca..941fd99 100644
+--- a/src/genVarOrder.cpp
++++ b/src/genVarOrder.cpp
+@@ -18,11 +18,6 @@ Abc_Frame_t* pAbc = NULL;
+ sat_solver* m_pSat = NULL;
+ Cnf_Dat_t* m_FCnf = NULL;
+ lit m_f = 0;
+-double sat_solving_time = 0;
+-double verify_sat_solving_time = 0;
+-double reverse_sub_time = 0;
+-chrono_steady_time helper_time_measure_start = TIME_NOW;
+-chrono_steady_time main_time_start = TIME_NOW;
+ 
+ vector<int> calculateLeastOccurence(Aig_Man_t* FAig) {
+ 	Aig_Obj_t* pObj; int i;
+diff --git a/src/helper.cpp b/src/helper.cpp
+index d42d613..f7b4b65 100644
+--- a/src/helper.cpp
++++ b/src/helper.cpp
+@@ -63,7 +63,7 @@ bool CMSat::CUSP::unigenRunning = false;
+ void parseOptionsOrdering(int argc, char * argv[]) {
+ 	bool lazy;
+ 	string skolemType;
+-cout << "Positional Arguments Argc"<< argc << "Argv: " << argv[0] << endl;
++// cout << "Positional Arguments Argc"<< argc << "Argv: " << argv[0] << endl;
+ 	optParserOrdering.positional_help("");
+ 	optParserOrdering.add_options()
+ 		("b, benchmark", "Specify the benchmark (required)", cxxopts::value<string>(options.benchmark), "FILE")
+@@ -82,13 +82,13 @@ cout << "Positional Arguments Argc"<< argc << "Argv: " << argv[0] << endl;
+ 		options.varsOrder = options.benchmark.substr(0,options.benchmark.find_last_of('.')) + "_varstoelim.txt";
+ 
+ 	if (optParserOrdering.count("help")) {
+-		cout << optParserOrdering.help({"", "Group"}) << std::endl;
++		// cout << optParserOrdering.help({"", "Group"}) << std::endl;
+ 		exit(0);
+ 	}
+ 
+ 	if (!optParserOrdering.count("benchmark")) {
+ 		cerr << endl << "Error: Benchmark not specified" << endl << endl;
+-		cout << optParserOrdering.help({"", "Group"}) << std::endl;
++		// cout << optParserOrdering.help({"", "Group"}) << std::endl;
+ 		exit(0);
+ 	}
+ }
+@@ -298,38 +298,38 @@ void parseOptions(int argc, char * argv[]) {
+ 	unigen_argv[2] = (char*)((new string("--threads="+to_string(options.numThreads)))->c_str());
+ 	unigen_argv[13] = (char*)((new string(getFileName(options.benchmark) + "_" + UNIGEN_DIMAC_FPATH))->c_str());
+ 
+-	cout << "Configuration: " << endl;
+-	cout << "{" << endl;
+-	cout << "\t benchmark:            " << options.benchmark << endl;
+-	cout << "\t varsOrder:            " << options.varsOrder << endl;
+-	cout << "\t out:                  " << options.outFName << endl;
+-	cout << "\t skolemType:           " << options.skolemType << endl;
+-	cout << "\t useABCSolver:         " << options.useABCSolver << endl;
+-	cout << "\t evalAigAtNode:        " << options.evalAigAtNode << endl;
+-	cout << "\t proactiveProp:        " << options.proactiveProp << endl;
+-	cout << "\t numSamples:           " << options.numSamples << endl;
+-	cout << "\t numThreads:           " << options.numThreads << endl;
+-	cout << "\t initCollapseParam:    " << options.c1 << endl;
+-	cout << "\t refCollapseParam:     " << options.c2 << endl;
+-	cout << "\t useFmcadPhase:        " << options.useFmcadPhase << endl;
+-	cout << "\t unigenBackground:     " << options.unigenBackground << endl;
+-	cout << "\t unigenThreshold:      " << options.unigenThreshold << endl;
+-	cout << "\t waitSamples:          " << options.waitSamples << endl;
+-	cout << "\t monoSkolem:           " << options.monoSkolem << endl;
+-	cout << "\t reverseOrder:         " << options.reverseOrder << endl;
+-	cout << "\t noRevSub:             " << options.noRevSub << endl;
+-	cout << "\t verify:               " << options.verify << endl;
+-	cout << "\t noUnate:              " << options.noUnate << endl;
+-	cout << "\t fmcadSizeThreshold:   " << options.fmcadSizeThreshold << endl;
+-	cout << "\t unateTimeout:         " << options.unateTimeout << endl;
+-	cout << "\t checkSatOnly:         " << options.checkSatOnly << endl;
+-	cout << "\t useBDD:               " << options.useBDD << endl;
+-	cout << "}" << endl;
++	// cout << "Configuration: " << endl;
++	// cout << "{" << endl;
++	// cout << "\t benchmark:            " << options.benchmark << endl;
++	// cout << "\t varsOrder:            " << options.varsOrder << endl;
++	// cout << "\t out:                  " << options.outFName << endl;
++	// cout << "\t skolemType:           " << options.skolemType << endl;
++	// cout << "\t useABCSolver:         " << options.useABCSolver << endl;
++	// cout << "\t evalAigAtNode:        " << options.evalAigAtNode << endl;
++	// cout << "\t proactiveProp:        " << options.proactiveProp << endl;
++	// cout << "\t numSamples:           " << options.numSamples << endl;
++	// cout << "\t numThreads:           " << options.numThreads << endl;
++	// cout << "\t initCollapseParam:    " << options.c1 << endl;
++	// cout << "\t refCollapseParam:     " << options.c2 << endl;
++	// cout << "\t useFmcadPhase:        " << options.useFmcadPhase << endl;
++	// cout << "\t unigenBackground:     " << options.unigenBackground << endl;
++	// cout << "\t unigenThreshold:      " << options.unigenThreshold << endl;
++	// cout << "\t waitSamples:          " << options.waitSamples << endl;
++	// cout << "\t monoSkolem:           " << options.monoSkolem << endl;
++	// cout << "\t reverseOrder:         " << options.reverseOrder << endl;
++	// cout << "\t noRevSub:             " << options.noRevSub << endl;
++	// cout << "\t verify:               " << options.verify << endl;
++	// cout << "\t noUnate:              " << options.noUnate << endl;
++	// cout << "\t fmcadSizeThreshold:   " << options.fmcadSizeThreshold << endl;
++	// cout << "\t unateTimeout:         " << options.unateTimeout << endl;
++	// cout << "\t checkSatOnly:         " << options.checkSatOnly << endl;
++	// cout << "\t useBDD:               " << options.useBDD << endl;
++	// cout << "}" << endl;
+ }
+ int CommandExecute(Abc_Frame_t* pAbc, string cmd) {
+ 	int ret = Cmd_CommandExecute(pAbc, (char*) cmd.c_str());
+ 	if(ret) {
+-		cout << "Cannot execute command \""<<cmd<<"\".\n";
++		// cout << "Cannot execute command \""<<cmd<<"\".\n";
+ 		return 1;
+ 	}
+ 	else
+@@ -469,7 +469,7 @@ void populateVars(Abc_Ntk_t* FNtk, Nnf_Man& nnf, string varsFile,
+ 	auto name2IdFTemp = name2IdF;
+ 	ifstream varsStream(varsFile);
+ 	if(!varsStream.is_open())
+-		cout << "Var File " + varsFile + " does not exist!" << endl;
++		// cout << "Var File " + varsFile + " does not exist!" << endl;
+ 	assert(varsStream.is_open());
+ 	while (getline(varsStream, line)) {
+ 		if(line != "") {
+@@ -486,14 +486,10 @@ void populateVars(Abc_Ntk_t* FNtk, Nnf_Man& nnf, string varsFile,
+ 		
+ 	OUT( "Populating varsXS varsYS..." );
+ 	for(auto it : varsXF) {
+-		// cout << "nnf.getNewAigNodeID: " << it << "->" << nnf.getNewAigNodeID(it) << endl;
+-		// varsXS.push_back(nnf.getNewAigNodeID(it));
+ 		varsXS.push_back(it);
+ 		assert(varsXS.back() != -1);
+ 	}
+ 	for(auto it : varsYF) {
+-		// cout << "nnf.getNewAigNodeID: " << it << "->" << nnf.getNewAigNodeID(it) << endl;
+-		// varsYS.push_back(nnf.getNewAigNodeID(it));
+ 		varsYS.push_back(it);
+ 		assert(varsYS.back() != -1);
+ 	}
+@@ -508,19 +504,9 @@ void populateVars(Abc_Ntk_t* FNtk, Nnf_Man& nnf, string varsFile,
+ 		cout << "Var File " + varsFile + " is empty!" << endl;
+ 		cerr << "Var File " + varsFile + " is empty!" << endl;
+ 		cerr << "  No Skolem functions to generate " << endl;
+-	//	exit (1);
++		exit (1);
+ 	}
+ 	assert(numY > 0);
+-
+-
+-	// for (int i = 0; i < numX; ++i) {
+-	// 	varsSInv[varsXS[i]] = i;
+-	// 	varsSInv[numOrigInputs + varsXS[i]] = numOrigInputs + i;
+-	// }
+-	// for (int i = 0; i < numY; ++i) {
+-	// 	varsSInv[varsYS[i]] = numX + i;
+-	// 	varsSInv[numOrigInputs + varsYS[i]] = numOrigInputs + numX + i;
+-	// }
+ }
+ 
+ /** Function
+@@ -767,15 +753,19 @@ void initializeCompose(Aig_Man_t* SAig, vector<Aig_Obj_t* >& Fs,
+ 	nodeIdtoN.resize(2*numOrigInputs);
+ 	for(int i = 0; i < numX; i++) {
+ 		nodeIdtoN[varsXS[i] - 1] = i;
+-		nodeIdtoN[numOrigInputs + varsXS[i] - 1] = numOrigInputs + i;
+ 		//cout << "Assigning " << i << " and " << numOrigInputs + i << " to X " << endl;
+ 	}
+ 	for(int i = 0; i < numY; i++) {
+ 		nodeIdtoN[varsYS[i] - 1] = numX + i;
+-		nodeIdtoN[numOrigInputs + varsYS[i] - 1] = numOrigInputs + numX + i;
+ 		//cout << "Assigning " << numX + i << " and " << numOrigInputs + numX + i << " to Y " << endl;
+ 	}
+-
++	for(int i = 0; i < numX; i++) {
++		nodeIdtoN[numOrigInputs + varsXS[i] - 1] = numOrigInputs + i;
++	}
++	for(int i = 0; i < numY; i++) {
++		nodeIdtoN[numOrigInputs + varsYS[i] - 1] = numOrigInputs + numX + i;
++	}
++		
+ 	//cout << " NumY = " << numY << endl;
+ 	//Aig_Obj_t * pAigObj;
+ 	//int k;
+@@ -885,7 +875,7 @@ void initializeCompose(Aig_Man_t* SAig, vector<Aig_Obj_t* >& Fs,
+ 		}
+ 	}
+ 
+-	cout << "Finished generating r0 vectors for non-unate vars " << endl;
++	// cout << "Finished generating r0 vectors for non-unate vars " << endl;
+ 	for(int i = 0; i < numY; ++i) {
+ 		if (unate[i] == -1)
+ 		{
+@@ -916,12 +906,12 @@ void initializeCompose(Aig_Man_t* SAig, vector<Aig_Obj_t* >& Fs,
+ 			funcVecVec.push_back(funcVec);
+ 		}
+ 	}
+-	cout << "Finished generating r1 vectors for non-unate vars " << endl;
++	// cout << "Finished generating r1 vectors for non-unate vars " << endl;
+ 
+ 	retVec = Aig_SubstituteVecVec(SAig, Aig_ManCo(SAig, 0), funcVecVec);
+ 	Fs[0] = Aig_ObjCreateCo(SAig, retVec[0]);
+-	if (Aig_ObjIsConst1(Aig_Regular(retVec[0])) || Aig_ObjIsConst1(Aig_Regular(retVec[1])) )
+-		cout << " Error = F is assigned Cons0 " << endl;
++	// if (Aig_ObjIsConst1(Aig_Regular(retVec[0])) || Aig_ObjIsConst1(Aig_Regular(retVec[1])) )
++	// 	cout << " Error = F is assigned Cons0 " << endl;
+ 	Fs[1] = Aig_ObjCreateCo(SAig, retVec[1]);	
+ 	int nonUIndex = 0;
+ 	for(int i = 0; i < numY; i++) {
+@@ -939,7 +929,7 @@ void initializeCompose(Aig_Man_t* SAig, vector<Aig_Obj_t* >& Fs,
+ 		}
+ 		r0[i].push_back(Aig_ManCoNum(SAig) - 1);
+ 	}
+-	cout << "Assigned r0's for all vars " << endl;
++	// cout << "Assigned r0's for all vars " << endl;
+ 	assert (nonUIndex == nonUnates);
+ 	nonUIndex = 0;
+ 	for(int i = 0; i < numY; i++) {
+@@ -959,7 +949,7 @@ void initializeCompose(Aig_Man_t* SAig, vector<Aig_Obj_t* >& Fs,
+ 	}
+ 	funcVecVec.resize(0);
+ 	retVec.resize(0);
+-	cout << "Assigned r1's for all vars " << endl;
++	// cout << "Assigned r1's for all vars " << endl;
+ }
+ 
+ /** Function
+@@ -1170,14 +1160,14 @@ pair<Cnf_Dat_t*,bool> buildErrorFormula(sat_solver* pSat, Aig_Man_t* SAig,
+ 
+ 		if(useR1AsSkolem[i]) {
+ 			// Assert y_i == -r1[i]
+-			OUT("equating  ID:     "<<varsYS[i]<<"="<<-Aig_ManCo(SAig,r1[i][0])->Id);
+-			OUT("          varNum: "<<SCnf->pVarNums[varsYS[i]]<<"="<<-r1i);
++			// OUT("equating  ID:     "<<varsYS[i]<<"="<<-Aig_ManCo(SAig,r1[i][0])->Id);
++			// OUT("          varNum: "<<SCnf->pVarNums[varsYS[i]]<<"="<<-r1i);
+ 			allOk = allOk && Equate(pSat, SCnf->pVarNums[varsYS[i]], -r1i);
+ 		}
+ 		else {
+ 			// Assert y_i == r0[i]
+-			OUT("equating  ID:     "<<varsYS[i]<<"="<<Aig_ManCo(SAig,r0[i][0])->Id);
+-			OUT("          varNum: "<<SCnf->pVarNums[varsYS[i]]<<"="<<r0i);
++			// OUT("equating  ID:     "<<varsYS[i]<<"="<<Aig_ManCo(SAig,r0[i][0])->Id);
++			// OUT("          varNum: "<<SCnf->pVarNums[varsYS[i]]<<"="<<r0i);
+ 			allOk = allOk && Equate(pSat, SCnf->pVarNums[varsYS[i]], r0i);
+ 		}
+ 	}
+@@ -1228,13 +1218,13 @@ bool callSATfindCEX(Aig_Man_t* SAig,vector<int>& cex,
+ 	Cnf_Dat_t *SCnf  = cnf_flag.first;
+ 	bool allOk = cnf_flag.second;
+ 
+-	OUT("Simplifying..." );
++	// OUT("Simplifying..." );
+ 	if(!allOk or !sat_solver_simplify(pSat)) {
+-		OUT("Formula is trivially unsat");
++		// OUT("Formula is trivially unsat");
+ 		return_val = false;
+ 	}
+ 	else {
+-		OUT("Solving..." );
++		// OUT("Solving..." );
+ 		vector<lit> assumptions = setAllNegX(SCnf, SAig, false);
+ 		int status = sat_solver_solve(pSat,
+ 						&assumptions[0], &assumptions[0] + numX,
+@@ -1242,11 +1232,11 @@ bool callSATfindCEX(Aig_Man_t* SAig,vector<int>& cex,
+ 						(ABC_INT64_T)0, (ABC_INT64_T)0);
+ 
+ 		if (status == l_False) {
+-			OUT("Formula is unsat");
++			// OUT("Formula is unsat");
+ 			return_val = false;
+ 		}
+ 		else if (status == l_True) {
+-			OUT("Formula is sat; get the CEX");
++			// OUT("Formula is sat; get the CEX");
+ 
+ 			cex.resize(2*numOrigInputs);
+ 			for (int i = 0; i < numX; ++i) {
+@@ -1308,7 +1298,6 @@ bool callSATfindCEX(Aig_Man_t* SAig,vector<int>& cex,
+  * @param r1        [in]        Underapproximations of cant-be-1 sets.
+  */
+ bool getNextCEX(Aig_Man_t*&SAig, int& M, int& k1Level, int& k1MaxLevel, vector<vector<int> > &r0, vector<vector<int> > &r1) {
+-	OUT("getNextCEX...");
+ 
+ 	while(true) {
+ 		while(!storedCEX.empty()) {
+@@ -1321,26 +1310,11 @@ bool getNextCEX(Aig_Man_t*&SAig, int& M, int& k1Level, int& k1MaxLevel, vector<v
+ 			assert(storedCEX_k1.size() == storedCEX.size());
+ 			assert(storedCEX_k2.size() == storedCEX.size());
+ 			assert(storedCEX_unused.size() == storedCEX.size());
+-			// cout << "K1 K2 Data:" << endl;
+-			// for (int i = 0; i < storedCEX.size(); ++i) {
+-			// 	cout << i << ":\tk1: " << storedCEX_k1[i] << "\tk2: " << storedCEX_k2[i] << endl;
+-			// }
+-			cout << "k1Max: " << k1Max << "\tk2Max: " << k2Max << endl;
+ 			M = k2Max;
+ 			k1MaxLevel = k1Max;
+-			// vector<int> kFreq(numY, 0);
+-			// for(auto it: storedCEX_k1)
+-			// 	kFreq[it]++;
+-			// int maxFreqk1 = -1;
+-			// for(int i = 0; i < kFreq.size(); i++) {
+-			// 	if(maxFreqk1 < kFreq[i]) {
+-			// 		k1Level = i;
+-			// 		maxFreqk1 = kFreq[i];
+-			// 	}
+-			// }
+ 			k1Level = 0;
+ 			for (int i = 0; i < storedCEX_k2.size(); ++i)
+-				if (storedCEX_k2[i] == k2Max and k1Level < storedCEX_k1[i])
++				if (storedCEX_k2[i] == k2Max && k1Level < storedCEX_k1[i])
+ 					k1Level = storedCEX_k1[i];
+ 
+ 			return true;
+@@ -1367,36 +1341,32 @@ bool populateCEX(Aig_Man_t* SAig,
+ 			return false;
+ 		}
+ 	}
+-	cout << "Called more models " << endl;
+-	bool more = !(options.c1==0 and options.c2==0 and !options.useFmcadPhase and options.proactiveProp);
++	bool more = !(options.c1==0 && options.c2==0 && !options.useFmcadPhase && options.proactiveProp);
+ 	unigen_fetchModels(SAig, r0, r1, more);
+ 	int initSize = storedCEX.size();
+-	cout << "solsJustFetched: " << solsJustFetched << endl;
+-	cout << "initSize:        " << initSize << endl;
+ 	int k1Max = options.evalAigAtNode?
+ 					filterAndPopulateK1VecFast(SAig, r0, r1, -1) :
+ 					filterAndPopulateK1Vec(SAig, r0, r1, -1);
+-	int finSize = storedCEX.size();
+-	cout << "finSize:         " << finSize << endl;
+-	if(solsJustFetched>0) {
+-		cout << "PACratio:           " << (((double)finSize)/solsJustFetched) << endl;
+-	}
+-	else {
+-		cout << "PACratio:           " << 0 << endl;
+-	}
+-	#ifndef NO_UNIGEN
+-	if(finSize < solsJustFetched*options.unigenThreshold and CMSat::CUSP::unigenRunning) {
+-		cout << "PACratio too low, Terminating Unigen prematurely" << endl;
+-		CMSat::CUSP::prematureKill = true;
+-		pthread_join(unigen_threadId, NULL);
+-
+-		pthread_mutex_lock(&CMSat::mu_lock);
+-		CMSat::CUSP::unigenRunning = false;
+-		pthread_cond_signal(&CMSat::lilCondVar);
+-		pthread_mutex_unlock(&CMSat::mu_lock);
+-		unigen_threadId = -1;
+-	}
+-	#endif
++	// int finSize = storedCEX.size();
++	// if(solsJustFetched>0) {
++	// 	// cout << "PACratio:           " << (((double)finSize)/solsJustFetched) << endl;
++	// }
++	// else {
++	// 	// cout << "PACratio:           " << 0 << endl;
++	// }
++	// #ifndef NO_UNIGEN
++	// if(finSize < solsJustFetched*options.unigenThreshold and CMSat::CUSP::unigenRunning) {
++	// 	// cout << "PACratio too low, Terminating Unigen prematurely" << endl;
++	// 	CMSat::CUSP::prematureKill = true;
++	// 	pthread_join(unigen_threadId, NULL);
++
++	// 	pthread_mutex_lock(&CMSat::mu_lock);
++	// 	CMSat::CUSP::unigenRunning = false;
++	// 	pthread_cond_signal(&CMSat::lilCondVar);
++	// 	pthread_mutex_unlock(&CMSat::mu_lock);
++	// 	unigen_threadId = -1;
++	// }
++	// #endif
+ 
+ 	// if(!CMSat::CUSP::unigenRunning && CMSat::CUSP::getSolutionMapSize() == 0) {
+ 	// 	if(populateStoredCEX(SAig, r0, r1, false)) {
+@@ -1420,7 +1390,7 @@ bool populateCEX(Aig_Man_t* SAig,
+  */
+ bool populateStoredCEX(Aig_Man_t* SAig,
+ 	vector<vector<int> > &r0, vector<vector<int> > &r1, bool fetch) {
+-	OUT("populating Stored CEX...");
++	// OUT("populating Stored CEX...");
+ 	bool return_val;
+ 	int status;
+ 	vector<int> r0Andr1Vars(numY);
+@@ -1430,9 +1400,9 @@ bool populateStoredCEX(Aig_Man_t* SAig,
+ 	Cnf_Dat_t *SCnf  = cnf_flag.first;
+ 	bool allOk = cnf_flag.second;
+ 
+-	OUT("Simplifying..." );
++	// OUT("Simplifying..." );
+ 	if(!allOk or !sat_solver_simplify(pSat)) { // Found Skolem Functions
+-		OUT("Formula is trivially unsat");
++		// OUT("Formula is trivially unsat");
+ 		sat_solver_delete(pSat);
+ 		Cnf_DataFree(SCnf);
+ 		return false;
+@@ -1460,7 +1430,7 @@ bool populateStoredCEX(Aig_Man_t* SAig,
+ 		Sat_SolverWriteDimacsAndIS(pSat, (char*)fname.c_str(),
+ 			&assumptions[0], &assumptions[0] + numX, IS, RS);
+ 
+-		Aig_ManPrintStats(SAig);
++		// Aig_ManPrintStats(SAig);
+ 		// Call Unigen
+ 		status = unigen_call(fname, options.numSamples, options.numThreads);
+ 	}
+@@ -1507,38 +1477,31 @@ bool populateStoredCEX(Aig_Man_t* SAig,
+ 		assert(status == -1);
+ 		OUT("UNIGEN says too little solutions");
+ 		if(!SwitchToABCSolver)
+-			cout << "\nSwitching to ABC's solver" << endl;
++			// cout << "\nSwitching to ABC's solver" << endl;
+ 
+ 		SwitchToABCSolver = true;
+ 
+ 		vector<lit> assumptions = setAllNegX(SCnf, SAig, false);
+ 
+-		auto start = std::chrono::steady_clock::now();
+ 		status = sat_solver_solve(pSat,
+ 						&assumptions[0], &assumptions[0] + numX,
+ 						(ABC_INT64_T)0, (ABC_INT64_T)0,
+ 						(ABC_INT64_T)0, (ABC_INT64_T)0);
+-		auto end = std::chrono::steady_clock::now();
+-		sat_solving_time += std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()/1000000.0;
+ 
+ 		if (status == l_False) {
+ 			OUT("Formula is unsat");
+ 			return_val = false;
+ 		}
+ 		else if (status == l_True) {
+-			OUT("Formula is sat; storing CEX");
++			// OUT("Formula is sat; storing CEX");
+ 
+ 			vector<int> cex(2*numOrigInputs);
+ 			for (int i = 0; i < numX; ++i) {
+ 				cex[i] = SCnf->pVarNums[varsXS[i]];
+-			}
+-			for (int i = 0; i < numY; ++i) {
+-				cex[numX + i] = SCnf->pVarNums[varsYS[i]];
+-			}
+-			for (int i = 0; i < numX; ++i) {
+ 				cex[numOrigInputs + i] = SCnf->pVarNums[varsXS[i] + numOrigInputs];
+ 			}
+ 			for (int i = 0; i < numY; ++i) {
++				cex[numX + i] = SCnf->pVarNums[varsYS[i]];
+ 				cex[numOrigInputs + numX + i] = SCnf->pVarNums[varsYS[i] + numOrigInputs];
+ 			}
+ 			int * v = Sat_SolverGetModel(pSat, &cex[0], cex.size());
+@@ -1871,21 +1834,11 @@ Aig_Obj_t* projectPiSmall(Aig_Man_t* pMan, const vector<int> &cex) {
+  * @param r1        [in out]    Underaproximations of Cant-be-1 sets
+  * @param cex       [in]        counter-example
+  */
+-void updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<vector<int> > &r0, vector<vector<int> > &r1) {
+-	OUT("updateAbsRef...");
++void updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<vector<int> > &r0, vector<vector<int> > &r1, int curr_iter, map<int, string> id2NameF) {
+ 	int k, l;
+ 	Aig_Obj_t *mu0, *mu1, *mu, *pi1_m, *pi0_m, *pAigObj, *mu0_temp, *mu1_temp;
+ 	mu0 = mu1 = mu = pi1_m = pi0_m = pAigObj = mu0_temp = mu1_temp = NULL;
+ 
+-	// cout << "addR1R0toR0: ";
+-	// for(auto it:addR1R0toR0)
+-	// 	cout << it << " ";
+-	// cout << endl;
+-	// cout << "addR1R0toR1: ";
+-	// for(auto it:addR1R0toR1)
+-	// 	cout << it << " ";
+-	// cout << endl;
+-
+ 	// have a global init collapse level
+ 	int refCollapseStart, refCollapseEnd, fmcadPhaseStart, fmcadPhaseEnd;
+ 	// does it suffice for just the cofactors for refCollapse
+@@ -1894,9 +1847,9 @@ void updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<ve
+ 
+ 	// Calculate refCollapse Levels
+ 	refCollapseStart = k1Level;
+-	while(collapsedInto[refCollapseStart] and refCollapseStart<=M) {refCollapseStart++;}
++	while(collapsedInto[refCollapseStart] && refCollapseStart<=M) {refCollapseStart++;}
+ 	refCollapseEnd = min(M, min(numY - 1, refCollapseStart + options.c2));
+-	if(refCollapseStart>M or collapsedInto[refCollapseStart])
++	if(refCollapseStart>M || collapsedInto[refCollapseStart])
+ 		refCollapseEnd = refCollapseStart = k1Level;
+ 
+ 	fmcadPhaseStart = k1Level;
+@@ -1906,7 +1859,7 @@ void updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<ve
+ 	// ####################################
+ 	//  SECTION A: 0 -> c1 ################
+ 	// ####################################
+-	if(!initCollapseDone and options.c1>0) {
++	if(!initCollapseDone && options.c1>0) {
+ 
+ 		int minK2 = numY;
+ 		for(auto it:storedCEX_k2)
+@@ -1914,15 +1867,15 @@ void updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<ve
+ 				minK2 = it;
+ 
+ 		if(options.c1 >= minK2) {
+-			cout << "One time initial collapsing since c1=" << options.c1 << " >= minK2=" << minK2 << endl;
++			// cout << "One time initial collapsing since c1=" << options.c1 << " >= minK2=" << minK2 << endl;
+ 			for(int i = 0; i<options.c1; i++) {
+ 
+-				cout << "#1exhaustiveCollapsedTill = " << i+1 << endl;
++				// cout << "#1exhaustiveCollapsedTill = " << i+1 << endl;
+ 				exhaustiveCollapsedTill = i+1;
+ 				collapsedInto[i] = true;
+ 				collapsedInto[i+1] = true;
+ 
+-				if(!addR1R0toR1[i] and !addR1R0toR0[i])
++				if(!addR1R0toR1[i] && !addR1R0toR0[i])
+ 					continue;
+ 
+ 				mu0 = newOR(pMan, r0[i]);
+@@ -1960,12 +1913,12 @@ void updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<ve
+ 				}
+ 
+ 				int removed = Aig_ManCleanup(pMan);
+-				cout << "Removed " << removed <<" nodes" << endl;
++				// cout << "Removed " << removed <<" nodes" << endl;
+ 			}
+-			cout << "compressAigByNtk" << endl;
+-			Aig_ManPrintStats(pMan);
++			// cout << "compressAigByNtk" << endl;
++			// Aig_ManPrintStats(pMan);
+ 			pMan = compressAigByNtk(pMan);
+-			Aig_ManPrintStats(pMan);
++			// Aig_ManPrintStats(pMan);
+ 			initCollapseDone = true;
+ 			// reset stored k1/k2 for cex known to have been fixed
+ 			for (int i = 0; i < storedCEX.size(); ++i) {
+@@ -1982,126 +1935,38 @@ void updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<ve
+ 
+ 	list<int> releventCEX;
+ 	for (int i = 0; i < storedCEX.size(); ++i) {
+-		if(storedCEX_k2[i] == M and storedCEX_k1[i] == k1Level)
++		if(storedCEX_k2[i] == M && storedCEX_k1[i] == k1Level)
+ 			releventCEX.push_back(i);
+ 	}
+ 
+ 
+-	// ########################################
+-	//  SECTION B: k1 -> k1+c2 ################
+-	// ########################################
+-/*	if(refCollapseStart <= exhaustiveCollapsedTill) {
+-		refCollapseStart = exhaustiveCollapsedTill;
+-	}
+-	if(refCollapseStart < refCollapseEnd)
+-		cout << "refcollapse " << refCollapseStart <<" to " << refCollapseEnd << endl;
+-	bool flag = false;
+-	for(int i = refCollapseStart; i<refCollapseEnd; i++) {
+-
+-		if(exhaustiveCollapsedTill == i) {
+-			cout << "#2exhaustiveCollapsedTill = " << i+1 << endl;
+-			exhaustiveCollapsedTill = i+1;
+-			flag = true;
+-		}
+-		collapsedInto[i] = true;
+-		collapsedInto[i+1] = true;
+-
+-		if(!addR1R0toR1[i] and !addR1R0toR0[i])
+-			continue;
+-
+-		mu0 = newOR(pMan, r0[i]);
+-		mu1 = newOR(pMan, r1[i]);
+-		mu = Aig_AndAigs(pMan, mu0, mu1);
+-
+-		if(addR1R0toR1[i]) {
+-			mu1 = Aig_SubstituteConst(pMan, mu, varsYS[i+1], 1);
+-
+-			if(exhaustiveCollapsedTill == i+1) {
+-				for(auto it:r1[i+1]) {
+-					pAigObj = Aig_ManCo(pMan,it);
+-					Aig_ObjPatchFanin0(pMan, pAigObj, mu1);
+-				}
+-			}
+-			else {
+-				Aig_ObjCreateCo(pMan, mu1);
+-				r1[i+1].push_back(Aig_ManCoNum(pMan) - 1);
+-			}
+-			addR1R0toR1[i] = false;
+-			addR1R0toR0[i+1] = true;
+-			addR1R0toR1[i+1] = true;
+-		}
+-
+-		if(addR1R0toR0[i]) {
+-			mu0 = Aig_SubstituteConst(pMan, mu, varsYS[i+1], 0);
+-
+-			if(exhaustiveCollapsedTill == i+1) {
+-				for(auto it:r0[i+1]) {
+-					pAigObj = Aig_ManCo(pMan,it);
+-					Aig_ObjPatchFanin0(pMan, pAigObj, mu0);
+-				}
+-			}
+-			else {
+-				Aig_ObjCreateCo(pMan, mu0);
+-				r0[i+1].push_back(Aig_ManCoNum(pMan) - 1);
+-			}
+-
+-			addR1R0toR0[i] = false;
+-			addR1R0toR0[i+1] = true;
+-			addR1R0toR1[i+1] = true;
+-		}
+-
+-		// for(auto it = releventCEX.begin(); it != releventCEX.end();) {
+-		// 	if(!storedCEX_r0Sat[*it][i+1] && !storedCEX_r1Sat[*it][i+1])
+-		// 		releventCEX.erase(it++);
+-		// 	else
+-		// 		it++;
+-		// }
+-
+-		if(flag) {
+-			int removed = Aig_ManCleanup(pMan);
+-			cout << "Removed " << removed <<" nodes" << endl;
+-		}
+-	}
+-	if(refCollapseStart <refCollapseEnd) {
+-		for (int i = 0; i < storedCEX.size(); ++i) {
+-			if(storedCEX_k1[i] < refCollapseEnd and
+-				storedCEX_k1[i] >= refCollapseStart) {
+-				storedCEX_k1[i] = -1;
+-			}
+-			if(storedCEX_k2[i] < refCollapseEnd and
+-				storedCEX_k2[i] >= refCollapseStart) {
+-				storedCEX_k2[i] = -1;
+-			}
+-		}
+-	}
+-*/
+ 	// #########################################
+ 	// SECTION C: k1+c -> fmcad ################
+ 	// #########################################
+ 	if(optionsOriginal.useFmcadPhase) {
+ 		int size = Aig_ManAndNum(pMan);
+-		if(size  > options.fmcadSizeThreshold and options.useFmcadPhase) {
+-			printf("Aig Size (%d) exceeded Threshold (%d), turning off fmcad\n",
+-					size, options.fmcadSizeThreshold);
++		if(size  > options.fmcadSizeThreshold && options.useFmcadPhase) {
++			// printf("Aig Size (%d) exceeded Threshold (%d), turning off fmcad\n",
++			// 		size, options.fmcadSizeThreshold);
+ 			options.useFmcadPhase = false;
+ 		}
+-		else if(size  <= options.fmcadSizeThreshold and !options.useFmcadPhase) {
+-			printf("Aig Size (%d) less than Threshold (%d), turning on fmcad\n",
+-					size, options.fmcadSizeThreshold);
++		else if(size  <= options.fmcadSizeThreshold && !options.useFmcadPhase) {
++			// printf("Aig Size (%d) less than Threshold (%d), turning on fmcad\n",
++			// 		size, options.fmcadSizeThreshold);
+ 			options.useFmcadPhase = true;
+ 		}
+ 	}
+-	if(options.useFmcadPhase and !releventCEX.empty()) {
++	if(options.useFmcadPhase && !releventCEX.empty()) {
+ 		bool continueFmcad = true;
+ 		fmcadPhaseStart = max(fmcadPhaseStart, exhaustiveCollapsedTill);
+-		cout << "fmcad from  " << fmcadPhaseStart << endl;
++		// cout << "fmcad from  " << fmcadPhaseStart << endl;
+ 
+ 		mu0 = mu1 = NULL;
+ 		int cexIndex = -1;
+ 		int corrK2 = -1;
+ 		int k = fmcadPhaseStart;
+ 		for(int i = 0; i< storedCEX.size(); i++) {
+-			if(storedCEX_k1[i] == k and storedCEX_k2[i] == M) {
++			if(storedCEX_k1[i] == k && storedCEX_k2[i] == M) {
+ 				if(corrK2 < storedCEX_k2[i]) {
+ 					corrK2 = storedCEX_k2[i];
+ 					cexIndex = i;
+@@ -2110,7 +1975,7 @@ void updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<ve
+ 		}
+ 		if(cexIndex == -1) {
+ 			for(auto i:releventCEX) {
+-				if(((mu0_temp = generalize(pMan, storedCEX[i], r0[k])) !=NULL) and
++				if(((mu0_temp = generalize(pMan, storedCEX[i], r0[k])) !=NULL) &&
+ 				   ((mu1_temp = generalize(pMan, storedCEX[i], r1[k])) !=NULL))
+ 
+ 					if(corrK2 < storedCEX_k2[i]) {
+@@ -2143,7 +2008,7 @@ void updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<ve
+ 							mu = Aig_AndAigs(pMan, mu0, mu1);
+ 						}
+ 						else if(!storedCEX_r1Sat[cexIndex][l]) {
+-							cout << "fmcad break " << l << endl;
++							// cout << "fmcad break " << l << endl;
+ 							break;
+ 						}
+ 					}
+@@ -2156,7 +2021,7 @@ void updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<ve
+ 							mu = Aig_AndAigs(pMan, mu0, mu1);
+ 						}
+ 						else if(!storedCEX_r0Sat[cexIndex][l]) {
+-							cout << "fmcad break " << l << endl;
++							// cout << "fmcad break " << l << endl;
+ 							break;
+ 						}
+ 					}
+@@ -2165,7 +2030,7 @@ void updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<ve
+ 			}
+ 		}
+ 		else {
+-			cout << "No cex available" << endl;
++			// cout << "No cex available" << endl;
+ 		}
+ 	}
+ 
+@@ -2178,6 +2043,7 @@ void updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<ve
+ 	assert(k >= 0);
+ 	assert(l < numY);
+ 
++	cout << endl << endl << "Iter " << curr_iter << " CEX:" << endl;
+ 	if(exhaustiveCollapsedTill <= M) {
+ 		bool fixR0 = false;
+ 		bool fixR1 = false;
+@@ -2190,7 +2056,6 @@ void updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<ve
+ 						pi1_m = Aig_OrAigs(pMan, pi1_m, projectPiSmall(pMan, storedCEX[i]));
+ 					fixR1 = true;
+ 					numFixes++;
+-					// cout << "Adding " << i << " to pi1_m" << endl;
+ 				}
+ 				else {
+ 					if(!fixR0)
+@@ -2199,21 +2064,26 @@ void updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<ve
+ 						pi0_m = Aig_OrAigs(pMan, pi0_m, projectPiSmall(pMan, storedCEX[i]));
+ 					fixR0 = true;
+ 					numFixes++;
+-					// cout << "Adding " << i << " to pi0_m" << endl;
+ 				}
+ 				if(storedCEX_unused[i]) {
+ 					numCEXUsed++;
+ 					storedCEX_unused[i] = false;
+ 				}
++				for(int j = 0; j < numX + numY; ++j){
++					if (storedCEX[i][j] == 1){
++						cout << ((j < numX)? id2NameF[varsXF[j]].substr(2): id2NameF[varsYF[j]].substr(2)) << " ";
++					} else if (storedCEX[i][j+numX+numY] == 1){
++						cout << "-" << ((j < numX)? id2NameF[varsXF[j]].substr(2): id2NameF[varsYF[j]].substr(2)) << " ";
++					}
++				}
++				cout << "0" << endl;
+ 			}
+ 		}
+ 
+-		// bool addR1R0toR0_m = addR1R0toR0[M] and !options.proactiveProp and !options.useFmcadPhase;
+-		// bool addR1R0toR1_m = addR1R0toR1[M] and !options.proactiveProp and !options.useFmcadPhase;
+ 		bool addR1R0toR0_m = false;
+ 		bool addR1R0toR1_m = false;
+ 
+-		if((fixR0 and addR1R0toR0_m) or (fixR1 and addR1R0toR1_m)) {
++		if((fixR0 && addR1R0toR0_m) || (fixR1 && addR1R0toR1_m)) {
+ 			mu0 = newOR(pMan, r0[M]);
+ 			mu1 = newOR(pMan, r1[M]);
+ 			mu = Aig_AndAigs(pMan, mu0, mu1);
+@@ -2249,13 +2119,13 @@ void updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<ve
+ 			r1[l].push_back(Aig_ManCoNum(pMan) - 1);
+ 		}
+ 
+-		if(exhaustiveCollapsedTill==M and !addR1R0toR0[M] and !addR1R0toR1[M]) {
+-			cout << "#4exhaustiveCollapsedTill = " << M+1 << endl;
++		if(exhaustiveCollapsedTill==M && !addR1R0toR0[M] && !addR1R0toR1[M]) {
++			// cout << "#4exhaustiveCollapsedTill = " << M+1 << endl;
+ 			exhaustiveCollapsedTill = M+1;
+ 		}
+ 	}
+ 	else {
+-		cout << "Skipping k2Fix" << endl;
++		// cout << "Skipping k2Fix" << endl;
+ 	}
+ 
+ 	return;
+@@ -2269,15 +2139,15 @@ void updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<ve
+ Aig_Man_t* compressAig(Aig_Man_t* SAig) {
+ 	OUT("Cleaning up...");
+ 	int removed = Aig_ManCleanup(SAig);
+-	cout << "Removed " << removed <<" nodes" << endl;
++	// cout << "Removed " << removed <<" nodes" << endl;
+ 
+ 	Aig_Man_t* temp = SAig;
+ 	// Dar_ManCompress2( Aig_Man_t * pAig, int fBalance,
+ 	//                  int fUpdateLevel, int fFanout,
+ 	//                  int fPower, int fVerbose )
+-	OUT("Running Dar_ManCompress2...");
++	// OUT("Running Dar_ManCompress2...");
+ 	SAig =  Dar_ManCompress2(SAig, 1, 1, 26, 1, 0);
+-	OUT("Stopping Old Aig Manager...");
++	// OUT("Stopping Old Aig Manager...");
+ 	Aig_ManStop( temp );
+ 	return SAig;
+ }
+@@ -2291,9 +2161,9 @@ Aig_Man_t* compressAigByNtk(Aig_Man_t* SAig) {
+ 	Aig_Man_t* temp;
+ 	string command;
+ 
+-	OUT("Cleaning up...");
++	// OUT("Cleaning up...");
+ 	int removed = Aig_ManCleanup(SAig);
+-	cout << "Removed " << removed <<" nodes" << endl;
++	// cout << "Removed " << removed <<" nodes" << endl;
+ 
+ 	SAig =  Dar_ManCompress2(temp = SAig, 1, 1, 26, 1, 0);
+ 	Aig_ManStop(temp);
+@@ -2313,7 +2183,7 @@ Aig_Man_t* compressAigByNtk(Aig_Man_t* SAig) {
+ 	}
+ 
+ 	if (Cmd_CommandExecute(pAbc, (char*)command.c_str())) {
+-		cout << "Cannot preprocess SNtk" << endl;
++		// cout << "Cannot preprocess SNtk" << endl;
+ 		return NULL;
+ 	}
+ 	SNtk = Abc_FrameReadNtk(pAbc);
+@@ -2333,9 +2203,9 @@ Aig_Man_t* compressAigByNtkMultiple(Aig_Man_t* SAig, int times) {
+ 	Aig_Man_t* temp;
+ 	string command;
+ 
+-	OUT("Cleaning up...");
++	// OUT("Cleaning up...");
+ 	int removed = Aig_ManCleanup(SAig);
+-	cout << "Removed " << removed <<" nodes" << endl;
++	// cout << "Removed " << removed <<" nodes" << endl;
+ 
+ 	// SAig =  Dar_ManCompress2(temp = SAig, 1, 1, 26, 1, 0);
+ 	// Aig_ManStop(temp);
+@@ -2347,25 +2217,19 @@ Aig_Man_t* compressAigByNtkMultiple(Aig_Man_t* SAig, int times) {
+ 	assert(options.evalAigAtNode);
+ 	command = "rewrite -lz; refactor -l;";
+ 
+-	cout << "balancing..." << endl;
++	// cout << "balancing..." << endl;
+ 	if (Cmd_CommandExecute(pAbc, "balance;")) {
+-		cout << "Cannot preprocess SNtk" << endl;
++		// cout << "Cannot preprocess SNtk" << endl;
+ 		return NULL;
+ 	}
+ 
+ 	for (int i = 0; i < times; ++i)	{
+-		cout << "cycle " << i << ": " << command;
+-		TIME_MEASURE_START
+ 		if (Cmd_CommandExecute(pAbc, (char*)command.c_str())) {
+-			cout << "Cannot preprocess SNtk, took " << TIME_MEASURE_ELAPSED << endl;
+ 			return NULL;
+ 		}
+-		cout << "took " << TIME_MEASURE_ELAPSED << endl;
+ 	}
+ 
+-	cout << "balancing..." << endl;
+ 	if (Cmd_CommandExecute(pAbc, "balance;")) {
+-		cout << "Cannot preprocess SNtk" << endl;
+ 		return NULL;
+ 	}
+ 
+@@ -2481,9 +2345,9 @@ void verifyResult(Aig_Man_t*&SAig, vector<vector<int> >& r0,
+ 			max_before = numAND;
+ 	}
+ 	avg_before = avg_before*1.0/skolemAig.size();
+-	cout << "Final un-substituted num outputs: " << skolemAig.size() << endl;
+-	cout << "Final un-substituted AVG Size:    " << avg_before << endl;
+-	cout << "Final un-substituted MAX Size:    " << max_before << endl;
++	// cout << "Final un-substituted num outputs: " << skolemAig.size() << endl;
++	// cout << "Final un-substituted AVG Size:    " << avg_before << endl;
++	// cout << "Final un-substituted MAX Size:    " << max_before << endl;
+ 
+ 
+ 	if(deleteCos) {
+@@ -2520,20 +2384,20 @@ void verifyResult(Aig_Man_t*&SAig, vector<vector<int> >& r0,
+ 	// SAig = compressAigByNtk(SAig);
+ 
+ 	#ifdef DEBUG_CHUNK // Print SAig, r1, skolemAig
+-		cout << "\nSAig: " << endl;
++		// cout << "\nSAig: " << endl;
+ 		Aig_ManForEachObj( SAig, pAigObj, i )
+ 			Aig_ObjPrintVerbose( pAigObj, 1 ), printf( "\n" );
+ 		i=0;
+ 		for(auto it:r1) {
+-			cout<<"r1["<<i<<"] : ";
+-			for(auto it2:it)
+-				cout<<it2<<" ";
+-			cout<<endl;
++			// cout<<"r1["<<i<<"] : ";
++			// for(auto it2:it)
++				// cout<<it2<<" ";
++			// cout<<endl;
+ 			i++;
+ 		}
+ 		i=0;
+ 		for(auto it:skolemAig) {
+-			cout<<"skolemAig["<<i<<"] : " << skolemAig[i] << endl;
++			// cout<<"skolemAig["<<i<<"] : " << skolemAig[i] << endl;
+ 			i++;
+ 		}
+ 	#endif
+@@ -2545,13 +2409,10 @@ void verifyResult(Aig_Man_t*&SAig, vector<vector<int> >& r0,
+ 
+ 
+ 	if(options.noRevSub) {
+-		cout << "noRevSub, saving and exiting" << endl;
+ 		saveSkolems(SAig, skolemAig, getFileName(options.benchmark) + "_norevsub.v");
+ 		return;
+ 	}
+ 
+-	auto start = std::chrono::steady_clock::now();
+-	cout << "Reverse Substitution..." << endl;
+ 	int iter = 0;
+ 	bool change = false;
+ 	if (false)	//Skipping reverse substitution for now..
+@@ -2570,13 +2431,13 @@ void verifyResult(Aig_Man_t*&SAig, vector<vector<int> >& r0,
+ 			}
+ 			Aig_ObjPatchFanin0(SAig, Aig_ManCo(SAig, skolemAig[i]), curr);
+ 				int removed = Aig_ManCleanup(SAig);
+-				cout << "Removed " << removed <<" nodes" << endl;
++				// cout << "Removed " << removed <<" nodes" << endl;
+ 				if(iter%30 == 0) {
+-					Aig_ManPrintStats( SAig );
+-					cout << "Compressing SAig..." << endl;
++					// Aig_ManPrintStats( SAig );
++					// cout << "Compressing SAig..." << endl;
+ 					SAig = compressAigByNtkMultiple(SAig, 1);
+ 					assert(SAig != NULL);
+-					Aig_ManPrintStats( SAig );
++					// Aig_ManPrintStats( SAig );
+ 				}
+ 		}
+ 	}
+@@ -2592,15 +2453,12 @@ void verifyResult(Aig_Man_t*&SAig, vector<vector<int> >& r0,
+ 			max_after = numAND;
+ 	}
+ 	avg_after = avg_after*1.0/skolemAig.size();
+-	cout << "Final reverse-substituted num outputs: " << skolemAig.size() << endl;
+-	cout << "Final reverse-substituted AVG Size:    " << avg_after << endl;
+-	cout << "Final reverse-substituted MAX Size:    " << max_after << endl;
+-	Aig_ManPrintStats(SAig);
++	// cout << "Final reverse-substituted num outputs: " << skolemAig.size() << endl;
++	// cout << "Final reverse-substituted AVG Size:    " << avg_after << endl;
++	// cout << "Final reverse-substituted MAX Size:    " << max_after << endl;
++	// Aig_ManPrintStats(SAig);
+ 
+ 	}
+-	auto end = std::chrono::steady_clock::now();
+-	reverse_sub_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()/1000000.0;
+-	cout<< "Reverse substitute time: " << reverse_sub_time << endl;
+ 
+ 	// save skolems to file
+ 	saveSkolems(SAig, skolemAig, options.outFName);
+@@ -2608,40 +2466,41 @@ void verifyResult(Aig_Man_t*&SAig, vector<vector<int> >& r0,
+ 	// For experimental purposes
+ 	if(!options.verify)
+ 		return;
+-	else {
+-		cout << "Assuming unateness checks were correct" << endl;
+-		cout << "Partially Verifying Result..." << endl;
+-	}
++	// else {
+ 
+-	OUT("Final F Resubstitution...");
++	// 	// cout << "Assuming unateness checks were correct" << endl;
++	// 	// cout << "Partially Verifying Result..." << endl;
++	// }
++
++	// OUT("Final F Resubstitution...");
+ 	Aig_Obj_t* F = Aig_ManCo(SAig, F_SAigIndex);
+ 	for(int i = 0; i < numY; i++) {
+ 		Aig_Obj_t* skolem_i = Aig_ObjChild0(Aig_ManCo(SAig,skolemAig[i]));
+ 		F = Aig_Substitute(SAig, F, varsYS[i], skolem_i);
+ 	}
+ 
+-	OUT("F Id:     "<<Aig_Regular(F)->Id);
+-	OUT("F compl:  "<<Aig_IsComplement(F));
+-	OUT("Aig_ObjChild0(Aig_ManCo(SAig, F_SAigIndex)) Id:     "<<Aig_Regular(Aig_ObjChild0(Aig_ManCo(SAig, F_SAigIndex)))->Id);
+-	OUT("Aig_ObjChild0(Aig_ManCo(SAig, F_SAigIndex)) compl:  "<<Aig_IsComplement(Aig_ObjChild0(Aig_ManCo(SAig, F_SAigIndex))));
+-	OUT("Aig_ObjChild0(Aig_ManCo(SAig, F_SAigIndex)):        "<<Aig_ObjChild0(Aig_ManCo(SAig, F_SAigIndex)));
++	// OUT("F Id:     "<<Aig_Regular(F)->Id);
++	// OUT("F compl:  "<<Aig_IsComplement(F));
++	// OUT("Aig_ObjChild0(Aig_ManCo(SAig, F_SAigIndex)) Id:     "<<Aig_Regular(Aig_ObjChild0(Aig_ManCo(SAig, F_SAigIndex)))->Id);
++	// OUT("Aig_ObjChild0(Aig_ManCo(SAig, F_SAigIndex)) compl:  "<<Aig_IsComplement(Aig_ObjChild0(Aig_ManCo(SAig, F_SAigIndex))));
++	// OUT("Aig_ObjChild0(Aig_ManCo(SAig, F_SAigIndex)):        "<<Aig_ObjChild0(Aig_ManCo(SAig, F_SAigIndex)));
+ 
+ 
+ 	// F = Aig_Exor(SAig, F, Aig_ObjChild0(Aig_ManCo(SAig, 1)));
+ 	// F = Aig_XOR(SAig, F, Aig_ObjChild0(Aig_ManCo(SAig, 1)));
+-	OUT("Aig_ManCoNum(SAig): "<<Aig_ManCoNum(SAig));
++	// OUT("Aig_ManCoNum(SAig): "<<Aig_ManCoNum(SAig));
+ 
+ 	F = Aig_ObjCreateCo(SAig, F);
+-	OUT("Aig_ManCoNum(SAig): "<<Aig_ManCoNum(SAig));
++	// OUT("Aig_ManCoNum(SAig): "<<Aig_ManCoNum(SAig));
+ 	int F_num = Aig_ManCoNum(SAig)-1;
+ 
+ 	#ifdef DEBUG_CHUNK // Print SAig
+-		cout << "\nSAig: " << endl;
++		// cout << "\nSAig: " << endl;
+ 		Aig_ManForEachObj( SAig, pAigObj, i )
+ 			Aig_ObjPrintVerbose( pAigObj, 1 ), printf( "\n" );
+ 	#endif
+ 
+-	OUT("compressAigByNtk...");
++	// OUT("compressAigByNtk...");
+ 	SAig = compressAigByNtk(SAig);
+ 
+ 	sat_solver* pSat = sat_solver_new();
+@@ -2653,17 +2512,14 @@ void verifyResult(Aig_Man_t*&SAig, vector<vector<int> >& r0,
+ 	LA[1] = toLitCond(getCnfCoVarNum(FCnf, SAig, F_SAigIndex),0);
+ 
+ 	bool return_val;
+-	start = std::chrono::steady_clock::now();
+ 	int status = sat_solver_solve(pSat, LA, LA+2, (ABC_INT64_T)0, (ABC_INT64_T)0, (ABC_INT64_T)0, (ABC_INT64_T)0);
+-	end = std::chrono::steady_clock::now();
+-	verify_sat_solving_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()/1000000.0;
+ 
+ 	if (status == l_False) {
+-		cout << "Verified!" << endl;
++		// cout << "Verified!" << endl;
+ 		return_val = true;
+ 	}
+ 	else if (status == l_True) {
+-		cout << "Not Verified!" << endl;
++		// cout << "Not Verified!" << endl;
+ 		cerr << "Not Verified!" << endl;
+ 		return_val = false;
+ 	}
+@@ -2674,20 +2530,20 @@ void verifyResult(Aig_Man_t*&SAig, vector<vector<int> >& r0,
+ 
+ void checkCexSanity(Aig_Man_t* pMan, vector<int>& cex, vector<vector<int> >& r0,
+ 	vector<vector<int> >& r1) {
+-	OUT("checkCexSanity...");
++	// OUT("checkCexSanity...");
+ 	evaluateAig(pMan,cex);
+ 
+ 	int i;
+ 	Aig_Obj_t* pAigObj;
+ 	#ifdef DEBUG_CHUNK // Print SAig
+-		cout << "\nSAig: " << endl;
++		// cout << "\nSAig: " << endl;
+ 		Aig_ManForEachObj( pMan, pAigObj, i )
+ 			Aig_ObjPrintVerbose( pAigObj, 1 ), cout<<"\t"<<pAigObj->iData, printf( "\n" );
+ 	#endif
+ 
+ 	for (int i = 0; i < numY; ++i)
+ 	{
+-		OUT("\t checking for i=" << i);
++		// OUT("\t checking for i=" << i);
+ 		if(useR1AsSkolem[i])
+ 			assert((cex[numX + i]==1) ^ (satisfiesVec(pMan, cex, r1[i], true)!=NULL));
+ 		else
+@@ -2903,32 +2759,6 @@ void Sat_SolverWriteDimacsAndIS(sat_solver * p, char * pFileName,
+ 	if (pFileName) fclose(pFile);
+ }
+ 
+-void* unigenCallThread(void* i) {
+-	auto start = std::chrono::steady_clock::now();
+-	#ifndef NO_UNIGEN
+-	pthread_mutex_lock(&CMSat::mu_lock);
+-	CMSat::CUSP::unigenRunning = true;
+-	pthread_mutex_unlock(&CMSat::mu_lock);
+-
+-	CMSat::CUSP unigenCall(unigen_argc, unigen_argv);
+-	unigenCall.conf.verbStats = 1;
+-	unigenCall.parseCommandLine();
+-	unigenCall.solve();
+-
+-	pthread_mutex_lock(&CMSat::mu_lock);
+-	CMSat::CUSP::unigenRunning = false;
+-	pthread_cond_signal(&CMSat::lilCondVar);
+-	pthread_mutex_unlock(&CMSat::mu_lock);
+-	unigen_threadId = -1;
+-	auto end = std::chrono::steady_clock::now();
+-	sat_solving_time += std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()/1000000.0;
+-	pthread_exit(NULL);
+-	#else
+-	assert(false);
+-	#endif
+-}
+-
+-
+ /**Function
+  * returns 0  when unsat
+  * returns -1 when sat but number of solutions is too small
+@@ -2948,8 +2778,8 @@ int unigen_call(string fname, int nSamples, int nThreads) {
+ 	for (int i = 0; i < unigen_argc; ++i) {
+ 		cmd = cmd + string(unigen_argv[i]) + " ";
+ 	}
+-	cout << "\nCalling unigen: " << cmd << endl;
+-	cout << "Fresh PACratios hereon" << endl;
++	// cout << "\nCalling unigen: " << cmd << endl;
++	// cout << "Fresh PACratios hereon" << endl;
+ 
+ 
+ 	// Initializations
+@@ -2979,7 +2809,7 @@ int unigen_call(string fname, int nSamples, int nThreads) {
+ 		case CMSat::initialStatus::tooLittle: return -1;
+ 		case CMSat::initialStatus::sat:
+ 			if(options.checkSatOnly) {
+-				cout << "SAT, Terminating Unigen prematurely" << endl;
++				// cout << "SAT, Terminating Unigen prematurely" << endl;
+ 				CMSat::CUSP::prematureKill = true;
+ 				pthread_join(unigen_threadId, NULL);
+ 
+@@ -3056,7 +2886,7 @@ bool unigen_fetchModels(Aig_Man_t* SAig, vector<vector<int> > &r0,
+ 		storedCEX_r1Sat.push_back(vector<bool>(numY, false));
+ 		flag = true;
+ 	}
+-	cout << "storedCEX.size() = " << storedCEX.size() << endl;
++	// cout << "storedCEX.size() = " << storedCEX.size() << endl;
+ 
+ 	return flag;
+ 	#else
+@@ -3159,8 +2989,8 @@ int filterAndPopulateK1VecFast(Aig_Man_t* SAig, vector<vector<int> >&r0, vector<
+ 	for(auto& cex:storedCEX) {
+ 		assert(cex.size() == 2*numOrigInputs);
+ 
+-		if(options.useFmcadPhase or
+-			((prevM != -1 and storedCEX_k2[index] == prevM) ||
++		if(options.useFmcadPhase ||
++			((prevM != -1 && storedCEX_k2[index] == prevM) ||
+ 			(storedCEX_k1[index] == -1))) {
+ 
+ 			// New algo
+@@ -3199,7 +3029,7 @@ int filterAndPopulateK1VecFast(Aig_Man_t* SAig, vector<vector<int> >&r0, vector<
+ 						}
+ 					}
+ 					storedCEX_r0Sat[index][k1] = r0i;
+-					if(r0i and r1i) break;
++					if(r0i && r1i) break;
+ 				}
+ 				storedCEX_k1[index] = k1;
+ 			}
+@@ -3360,7 +3190,7 @@ void initializeAddR1R0toR() {
+ }
+ 
+ void collapseInitialLevels(Aig_Man_t* pMan, vector<vector<int> >& r0, vector<vector<int> >& r1) {
+-	cout << "collapseInitialLevels" << endl;
++	// cout << "collapseInitialLevels" << endl;
+ 	Aig_Obj_t *mu0, *mu1, *mu;
+ 	for(int i = 0; i<options.c1; i++) {
+ 		mu0 = newOR(pMan, r0[i]);
+@@ -3380,7 +3210,7 @@ void collapseInitialLevels(Aig_Man_t* pMan, vector<vector<int> >& r0, vector<vec
+ }
+ 
+ void propagateR1Cofactors(Aig_Man_t* pMan, vector<vector<int> >& r0, vector<vector<int> >& r1) {
+-	cout << "propagateR1Cofactors" << endl;
++	// cout << "propagateR1Cofactors" << endl;
+ 	Aig_Obj_t *mu0, *mu1, *mu;
+ 
+ 	for(int i = 0; i<numY-1; i++) {
+@@ -3397,7 +3227,7 @@ void propagateR1Cofactors(Aig_Man_t* pMan, vector<vector<int> >& r0, vector<vect
+ }
+ 
+ void propagateR0Cofactors(Aig_Man_t* pMan, vector<vector<int> >& r0, vector<vector<int> >& r1) {
+-	cout << "propagateR0Cofactors" << endl;
++	// cout << "propagateR0Cofactors" << endl;
+ 	Aig_Obj_t *mu0, *mu1, *mu;
+ 
+ 	for(int i = 0; i<numY-1; i++) {
+@@ -3414,7 +3244,7 @@ void propagateR0Cofactors(Aig_Man_t* pMan, vector<vector<int> >& r0, vector<vect
+ }
+ 
+ void propagateR_Cofactors(Aig_Man_t* pMan, vector<vector<int> >& r0, vector<vector<int> >& r1) {
+-	cout << "propagateR_Cofactors" << endl;
++	// cout << "propagateR_Cofactors" << endl;
+ 	Aig_Obj_t *mu0, *mu1, *mu;
+ 
+ 	for(int i = 0; i<numY-1; i++) {
+@@ -3438,7 +3268,7 @@ void propagateR_Cofactors(Aig_Man_t* pMan, vector<vector<int> >& r0, vector<vect
+ }
+ 
+ void propagateR0R1Cofactors(Aig_Man_t* pMan, vector<vector<int> >& r0, vector<vector<int> >& r1) {
+-	cout << "propagateR0R1Cofactors" << endl;
++	// cout << "propagateR0R1Cofactors" << endl;
+ 	Aig_Obj_t *mu0, *mu1, *mu;
+ 	vector<int> r0Addn(numY);
+ 	vector<int> r1Addn(numY);
+@@ -3469,68 +3299,68 @@ void propagateR0R1Cofactors(Aig_Man_t* pMan, vector<vector<int> >& r0, vector<ve
+ void chooseSmallerR_(Aig_Man_t* pMan, vector<vector<int> >& r0, vector<vector<int> >& r1) {
+ 	clock_t start = clock();
+ 
+-	cout << "Skolem Choices: " << endl;
++	// cout << "Skolem Choices: " << endl;
+ 	for (int i = 0; i < numY; ++i) {
+ 		int sizeR1 = Aig_DagSize(newOR(pMan, r1[i]));
+ 		int sizeR0 = Aig_DagSize(newOR(pMan, r0[i]));
+ 		useR1AsSkolem[i] = sizeR1 < sizeR0;
+-		cout << useR1AsSkolem[i] << " ";
++		// cout << useR1AsSkolem[i] << " ";
+ 	}
+-	cout << endl;
++	// cout << endl;
+ 
+ 	clock_t end = clock();
+-	cout << "Time taken = " << double( end-start)/CLOCKS_PER_SEC << endl;
++	// cout << "Time taken = " << double( end-start)/CLOCKS_PER_SEC << endl;
+ }
+ 
+ void chooseR_(Aig_Man_t* pMan, vector<vector<int> >& r0, vector<vector<int> >& r1) {
+ 	if(options.skolemType == sType::skolemR0) {
+-		cout << "Choosing r0 as Skolem" << endl;
++		// cout << "Choosing r0 as Skolem" << endl;
+ 		useR1AsSkolem = vector<bool>(numY,false);
+ 	}
+ 	else if(options.skolemType == sType::skolemR1) {
+-		cout << "Choosing ~r1 as Skolem" << endl;
++		// cout << "Choosing ~r1 as Skolem" << endl;
+ 		useR1AsSkolem = vector<bool>(numY,true);
+ 	}
+ 	else {
+-		cout << "Choosing smaller of r0/r1 as Skolem" << endl;
++		// cout << "Choosing smaller of r0/r1 as Skolem" << endl;
+ 		chooseSmallerR_(pMan, r0, r1);
+ 	}
+ }
+ 
+ void printK2Trend() {
+ 	int totalSum = 0;
+-	cout << "k2Trend:" << endl;
+-	cout << "\t";
++	// cout << "k2Trend:" << endl;
++	// cout << "\t";
+ 	for (int j = numY-1; j >= 0; --j) {
+ 		cout << "Y" << j << "\t";
+ 	}
+-	cout << "Sum" << endl;
++	// cout << "Sum" << endl;
+ 	for (int i = numY; i >= 0; --i) {
+ 		int rowSum = 0;
+-		if(i == numY)
+-			cout << "Init" << "\t";
+-		else
+-			cout << "Y" << i << "\t";
++		// if(i == numY)
++		// 	// cout << "Init" << "\t";
++		// else
++			// cout << "Y" << i << "\t";
+ 		for (int j = numY-1; j >= 0; --j) {
+-			cout << k2Trend[i][j] << "\t";
++			// cout << k2Trend[i][j] << "\t";
+ 			rowSum += k2Trend[i][j];
+ 		}
+-		cout << rowSum << endl;
++		// cout << rowSum << endl;
+ 		totalSum += rowSum;
+ 	}
+-	cout << "Sum\t";
++	// cout << "Sum\t";
+ 	for (int i = numY-1; i >= 0; --i) {
+ 		int colSum = 0;
+ 		for (int j = numY; j >= 0; --j) {
+ 			colSum += k2Trend[j][i];
+ 		}
+-		cout << colSum << "\t";
++		// cout << colSum << "\t";
+ 	}
+-	cout << totalSum << endl << endl;
++	// cout << totalSum << endl << endl;
+ }
+ 
+ void monoSkolem(Aig_Man_t*&pMan, vector<vector<int> > &r0, vector<vector<int> > &r1) {
+-	cout << "Running MonoSkolem" << endl;
++	// cout << "Running MonoSkolem" << endl;
+ 	Aig_Obj_t *mu0, *mu1, *mu, *pAigObj;
+ 
+ 	for(int i = 0; i<numY-1; i++) {
+@@ -3568,7 +3398,7 @@ string getFileName(string s) {
+ 	return(s);
+ }
+ 
+-int checkUnateSyntacticAll(Aig_Man_t* FAig, vector<int>&unate) {
++int checkUnateSyntacticAll(Aig_Man_t* FAig, vector<int>&unate, map<int,string>& id2NameF) {
+ 	Nnf_Man nnfSyntatic(FAig);
+ 	assert(nnfSyntatic.getCiNum() == numOrigInputs);
+ 
+@@ -3579,28 +3409,22 @@ int checkUnateSyntacticAll(Aig_Man_t* FAig, vector<int>&unate) {
+ 			int refNeg = nnfSyntatic.getCiNeg(varsYF[i] - 1)->getNumRef();
+ 			if(refPos == 0) {
+ 				unate[i] = 0;
+-				cout << "Var y" << i << " (" << varsYF[i] << ") is negative unate (syntactic)" << endl;
++				cout << "unate: -" << id2NameF[varsYF[i]].substr(2) << endl;
+ 			} else if(refNeg == 0) {
+ 				unate[i] = 1;
+-				cout << "Var y" << i << " (" << varsYF[i] << ") is positive unate (syntactic)" << endl;
++				cout << "unate: " << id2NameF[varsYF[i]].substr(2) << endl;
+ 			}
+ 			if (unate[i] != -1) {
+ 				numUnate++;
+ 			}
+ 		}
+ 	}
+-	cout << "Found " << numUnate << " unates" << endl;
++	// cout << "Found " << numUnate << " unates" << endl;
+ 	return numUnate;
+ }
+ 
+ //Temporarily coded by Shetal
+-int checkUnateSemAll(Aig_Man_t* FAig, vector<int>&unate) { 
+-	Aig_ManPrintStats(FAig);
+-
+-	auto unate_start = std::chrono::steady_clock::now();
+-	auto unate_end = std::chrono::steady_clock::now();
+-	auto unate_run_time = std::chrono::duration_cast<std::chrono::microseconds>(unate_end - unate_start).count()/1000000.0;
+-
++int checkUnateSemAll(Aig_Man_t* FAig, vector<int>&unate, map<int,string>& id2NameF) {
+ //Is this required?
+ //	nodeIdtoN.resize(numOrigInputs);
+ //	for(int i = 0; i < numX; i++) {
+@@ -3609,8 +3433,6 @@ int checkUnateSemAll(Aig_Man_t* FAig, vector<int>&unate) {
+ //	for(int i = 0; i < numY; i++) {
+ //		nodeIdtoN[varsYF[i] - 1] = numX + i;
+ //	}
+-	
+-	cout << " Preparing for semantic unate checks " << endl;
+ 	sat_solver* pSat = sat_solver_new();
+ 	Cnf_Dat_t* SCnf = Cnf_Derive(FAig, Aig_ManCoNum(FAig));
+ 	addCnfToSolver(pSat, SCnf);
+@@ -3626,14 +3448,12 @@ int checkUnateSemAll(Aig_Man_t* FAig, vector<int>&unate) {
+ 	for(int i = 0; i < numX; ++i) {
+ 		Lits[0] = toLitCond( SCnf->pVarNums[ varsXF[i]], 0 );
+ 		Lits[1] = toLitCond( SCnf_copy->pVarNums[ varsXF[i]], 1 );
+-	//	cout << " Adding clause " <<  Lits [0] << " " << Lits [1] << endl;
+-        	if ( !sat_solver_addclause( pSat, Lits, Lits+2 ) )
+-            		assert( 0 );
++		if ( !sat_solver_addclause( pSat, Lits, Lits+2 ) )
++				assert( 0 );
+ 		Lits[0] = toLitCond( SCnf->pVarNums[ varsXF[i]], 1 );
+ 		Lits[1] = toLitCond( SCnf_copy->pVarNums[ varsXF[i]], 0 );
+-        	if ( !sat_solver_addclause( pSat, Lits, Lits+2 ) )
+-            		assert( 0 );
+-	//	cout << " Adding clause " <<  Lits [0] << " " << Lits [1] << endl;
++		if ( !sat_solver_addclause( pSat, Lits, Lits+2 ) )
++				assert( 0 );
+ 	}
+ 
+ 	int cont_Vars[numY]; //control Variables
+@@ -3643,39 +3463,26 @@ int checkUnateSemAll(Aig_Man_t* FAig, vector<int>&unate) {
+ 		Lits[0] = toLitCond( SCnf->pVarNums[ varsYF[i]], 0 );
+ 		Lits[1] = toLitCond( SCnf_copy->pVarNums[ varsYF[i]], 1 );
+ 		Lits[2] = Abc_Var2Lit (cont_Vars[i], 0);
+-//		cout << " Adding clause for " << i << " "  <<  Lits [0] << " " << Lits [1] << " " << Lits [2] << endl;
+-        	if ( !sat_solver_addclause( pSat, Lits, Lits+3 ) )
+-            		assert( 0 );
++		if ( !sat_solver_addclause( pSat, Lits, Lits+3 ) )
++				assert( 0 );
+ 		Lits[0] = toLitCond( SCnf->pVarNums[ varsYF[i]], 1 );
+ 		Lits[1] = toLitCond( SCnf_copy->pVarNums[ varsYF[i]], 0 );
+ 		Lits[2] = Abc_Var2Lit (cont_Vars[i], 0);
+-///		cout << " Adding clause for " << i << " "  <<  Lits [0] << " " << Lits [1] << " " << Lits [2] << endl;
+-        	if ( !sat_solver_addclause( pSat, Lits, Lits+3 ) )
+-            		assert( 0 );
++		if ( !sat_solver_addclause( pSat, Lits, Lits+3 ) )
++				assert( 0 );
+ 		if (unate [i] != -1) // Y is already syntactically unate
+ 		{
+-			//unate[i] = -1;
+-			//cout << "Adding " << varsYF[i] << " as unate " << unate [i] << endl;
+ 			addVarToSolver(pSat, SCnf->pVarNums[varsYF[i]], unate[i]);
+ 			addVarToSolver(pSat, SCnf_copy->pVarNums[varsYF[i]], unate[i]);
+ 		}
+ 	}
+ 	
+-	//lit LA[numY+4];
+ 	lit LA[numY+2];
+-
+-	//cout << "NumCnfVars " <<  numCnfVars << endl;
+-	//cout << "SCnfVars " <<  SCnf->nVars << endl;
+ 	int coID = getCnfCoVarNum(SCnf, FAig, 0);
+-	
+ 	Aig_Obj_t * pCo = Aig_ManCo(FAig, 0);
+ 	assert (coID == SCnf->pVarNums[pCo->Id]);
+-
+ 	addVarToSolver(pSat, SCnf->pVarNums[pCo->Id], 1);
+ 	addVarToSolver(pSat, SCnf_copy->pVarNums[pCo->Id], 0);
+-//	LA[0] = toLitCond( SCnf->pVarNums[pCo->Id],0);	
+-//	LA[1] = toLitCond(SCnf_copy->pVarNums[pCo->Id],1); //Check whether this is positive or negative	-- assuming 0 is true
+-
+ 	int yIndex;
+ 
+ 	do {
+@@ -3683,27 +3490,21 @@ int checkUnateSemAll(Aig_Man_t* FAig, vector<int>&unate) {
+ 		for (int i = 0; i < numY; ++i)
+ 		{
+ 			yIndex  = SCnf->pVarNums[varsYF[i]];
+-	//		cout << "Checking @ " << i << " for " << varsYF[i] << " YIndex = " << yIndex << "Unate " << unate [i] << endl;	
+ 			for (int j = 0; j < numY; j++)
+ 			{
+ 				if (j == i)
+ 					LA[2+j] = Abc_Var2Lit (cont_Vars[j], 0);
+ 				else
+ 					LA[2+j] = Abc_Var2Lit (cont_Vars[j], 1);
+-				//cout << " Control variable " << j   << " is " << LA [4+j] << endl;
+ 			}
+ 
+ 			if(unate[i] == -1) {
+ 				// Check if positive unate
+ 				LA[0] = toLitCond(SCnf->pVarNums[varsYF[i]], 1); //check the 0 and 1's
+ 				LA[1] = toLitCond(SCnf_copy->pVarNums[varsYF[i]], 0);
+-				//cout << "Printing assumptions for pos unate : " << LA [0] << " " << LA [1] << " " << LA [2] << " " << LA [3] << endl;
+ 				status = sat_solver_solve(pSat, LA, LA+2+numY, (ABC_INT64_T)0, (ABC_INT64_T)0, (ABC_INT64_T)0, (ABC_INT64_T)0);
+-				//cout << "Status of sat solver " << status << endl;
+ 				if (status == l_False) {
+ 					unate[i] = 1;
+-					cout << "Var y" << i << " (" << varsYF[i] << ") is positive unate (semantic)" << endl;
+-					// sat_solver_push(pSat, toLitCond(SCnf->pVarNums[varsYF[i]],0));
+ 					addVarToSolver(pSat, SCnf->pVarNums[varsYF[i]], 1);
+ 					addVarToSolver(pSat, SCnf_copy->pVarNums[varsYF[i]], 1);
+ 					numUnate++;
+@@ -3713,49 +3514,28 @@ int checkUnateSemAll(Aig_Man_t* FAig, vector<int>&unate) {
+ 				// Check if negative unate
+ 				LA[0] = toLitCond(SCnf->pVarNums[varsYF[i]], 0); //check the 0 and 1's
+ 				LA[1] = toLitCond(SCnf_copy->pVarNums[varsYF[i]], 1);
+-				//cout << "Printing assumptions for neg unate : " << LA [0] << " " << LA [1] << " " << LA [2] << " " << LA [3] << endl;
+-				//LA[0] = toLitCond(getCnfCoVarNum(SCnf, FAig, negUnates[i]),1);
+ 				status = sat_solver_solve(pSat, LA, LA+2+numY, (ABC_INT64_T)0, (ABC_INT64_T)0, (ABC_INT64_T)0, (ABC_INT64_T)0);
+-				//cout << "Status of sat solver " << status << endl;
+ 				if (status == l_False) {
+-					cout << "Var y" << i << " (" << varsYF[i] << ") is negative unate (semantic)" << endl;
++					cout << "unate: -" << id2NameF[varsYF[i]].substr(2) << endl;
+ 					unate[i] = 0;
+-					// sat_solver_push(pSat, toLitCond(SCnf->pVarNums[varsYF[i]],1));
+ 					addVarToSolver(pSat, SCnf->pVarNums[varsYF[i]], 0);
+ 					addVarToSolver(pSat, SCnf_copy->pVarNums[varsYF[i]], 0);
+ 					numUnate++;
+ 				}
+ 			}
+ 		}
+-		cout << "Found " << numUnate << " unates" << endl;
+ 		totalNumUnate += numUnate;
+-
+-		unate_end = std::chrono::steady_clock::now();
+-		unate_run_time = std::chrono::duration_cast<std::chrono::microseconds>(unate_end - main_time_start).count()/1000000.0;
+-		if(numUnate > 0 and unate_run_time >= options.unateTimeout) {
+-			cout << "checkUnateSemanticAll Timed Out" << endl;
+-			break;
+-		}
+-	}
+-	while(numUnate > 0);
++	} while(numUnate > 0);
+ 
+ 	sat_solver_delete(pSat);
+ 	Cnf_DataFree(SCnf);
+ 	Cnf_DataFree(SCnf_copy);
+-
+-//	cout << "TotalNumUnate =  " << totalNumUnate << endl;
+ 	return totalNumUnate;
+ 
+ }
+ 
+ // skolems[] = 1 (pos unate); 0 (neg unate); -1 (not unate)
+-int checkUnateSemanticAll(Aig_Man_t* FAig, vector<int>&unate) {
+-	Aig_ManPrintStats(FAig);
+-
+-	auto unate_start = std::chrono::steady_clock::now();
+-	auto unate_end = std::chrono::steady_clock::now();
+-	auto unate_run_time = std::chrono::duration_cast<std::chrono::microseconds>(unate_end - unate_start).count()/1000000.0;
+-
++int checkUnateSemanticAll(Aig_Man_t* FAig, vector<int>&unate, map<int,string>& id2NameF) {
+ 	nodeIdtoN.resize(numOrigInputs);
+ 	for(int i = 0; i < numX; i++) {
+ 		nodeIdtoN[varsXF[i] - 1] = i;
+@@ -3784,9 +3564,7 @@ int checkUnateSemanticAll(Aig_Man_t* FAig, vector<int>&unate) {
+ 		funcVec[numX+i] = Aig_ManConst1(FAig);
+ 		funcVecVec.push_back(funcVec);
+ 	}
+-
+ 	retVec = Aig_SubstituteVecVec(FAig, Aig_ManCo(FAig, 0), funcVecVec);
+-
+ 	vector<int> posUnates;
+ 	vector<int> negUnates;
+ 	for (int i = 0; i < numY; ++i)
+@@ -3795,24 +3573,17 @@ int checkUnateSemanticAll(Aig_Man_t* FAig, vector<int>&unate) {
+ 		auto posUnateNode = Aig_OrAigs(FAig, Aig_Not(retVec[2*i]), retVec[2*i+1]);
+ 		Aig_ObjCreateCo(FAig, posUnateNode);
+ 		posUnates.push_back(Aig_ManCoNum(FAig) - 1);
+-
+ 		// neg unate
+ 		auto negUnateNode = Aig_OrAigs(FAig, retVec[2*i], Aig_Not(retVec[2*i+1]));
+ 		Aig_ObjCreateCo(FAig, negUnateNode);
+ 		negUnates.push_back(Aig_ManCoNum(FAig) - 1);
+ 	}
+-
+ 	// Build Solver and CNF
+ 	sat_solver* pSat = sat_solver_new();
+ 	Cnf_Dat_t* SCnf = Cnf_Derive(FAig, Aig_ManCoNum(FAig));
+ 	addCnfToSolver(pSat, SCnf);
+-
+-		
+-		
+-
+ 	int status, numUnate, totalNumUnate = 0;
+ 	assert(unate.size()==numY);
+-
+ 	// Unate Sat Calls
+ 	do {
+ 		numUnate = 0;
+@@ -3826,9 +3597,7 @@ int checkUnateSemanticAll(Aig_Man_t* FAig, vector<int>&unate) {
+ 				status = sat_solver_solve(pSat, LA, LA+1, (ABC_INT64_T)0, (ABC_INT64_T)0, (ABC_INT64_T)0, (ABC_INT64_T)0);
+ 				if (status == l_False) {
+ 					unate[i] = 1;
+-					cout << "Var y" << i << " (" << varsYF[i] << ") is positive unate (semantic)" << endl;
+-					// sat_solver_push(pSat, toLitCond(SCnf->pVarNums[varsYF[i]],0));
+-				//	cout << "Cnf var for y " << varsYF[i] << "is" << SCnf->pVarNums[varsYF[i]] << endl;
++					cout << "Var " << stoi(id2NameF[varsYF[i]].substr(2)) << " is positive unate (semantic)" << endl;
+ 					addVarToSolver(pSat, SCnf->pVarNums[varsYF[i]], 1);
+ 					numUnate++;
+ 				}
+@@ -3839,31 +3608,18 @@ int checkUnateSemanticAll(Aig_Man_t* FAig, vector<int>&unate) {
+ 				LA[0] = toLitCond(getCnfCoVarNum(SCnf, FAig, negUnates[i]),1);
+ 				status = sat_solver_solve(pSat, LA, LA+1, (ABC_INT64_T)0, (ABC_INT64_T)0, (ABC_INT64_T)0, (ABC_INT64_T)0);
+ 				if (status == l_False) {
+-					cout << "Var y" << i << " (" << varsYF[i] << ") is negative unate (semantic)" << endl;
++					cout << "unate: -" << id2NameF[varsYF[i]].substr(2) << endl;
+ 					unate[i] = 0;
+-					// sat_solver_push(pSat, toLitCond(SCnf->pVarNums[varsYF[i]],1));
+ 					addVarToSolver(pSat, SCnf->pVarNums[varsYF[i]], 0);
+-				//	cout << "Cnf var for y " << varsYF[i] << "is" << SCnf->pVarNums[varsYF[i]] << endl;
+ 					numUnate++;
+ 				}
+ 			}
+ 		}
+-		cout << "Found " << numUnate << " unates" << endl;
+ 		totalNumUnate += numUnate;
+-
+-		unate_end = std::chrono::steady_clock::now();
+-		unate_run_time = std::chrono::duration_cast<std::chrono::microseconds>(unate_end - main_time_start).count()/1000000.0;
+-		if(numUnate > 0 and unate_run_time >= options.unateTimeout) {
+-			cout << "checkUnateSemanticAll Timed Out" << endl;
+-			break;
+-		}
+-	}
+-	while(numUnate > 0);
++	} while(numUnate > 0);
+ 
+ 	sat_solver_delete(pSat);
+ 	Cnf_DataFree(SCnf);
+-
+-	cout << "TotalNumUnate =  " << totalNumUnate << endl;
+ 	return totalNumUnate;
+ }
+ 
+@@ -3872,7 +3628,6 @@ int getNumY(string varsFile) {
+ 	int tempnumY = 0;
+ 	ifstream varsStream(varsFile);
+ 	if(!varsStream.is_open()) {
+-		cout << "Var File " + varsFile + " does not exist!" << endl;
+ 		cerr << "Var File " + varsFile + " does not exist!" << endl;
+ 	}
+ 	assert(varsStream.is_open());
+@@ -3903,7 +3658,6 @@ void populateVars(Abc_Ntk_t* FNtk, string varsFile, vector<string>& varOrder,
+ 	auto name2IdFTemp = name2IdF;
+ 	ifstream varsStream(varsFile);
+ 	if(!varsStream.is_open()) {
+-		cout << "Var File " + varsFile + " does not exist!" << endl;
+ 		cerr << "Var File " + varsFile + " does not exist!" << endl;
+ 	}
+ 	assert(varsStream.is_open());
+@@ -3925,7 +3679,6 @@ void populateVars(Abc_Ntk_t* FNtk, string varsFile, vector<string>& varOrder,
+ 	numOrigInputs = numX + numY;
+ 
+ 	if(numY <= 0) {
+-		cout << "Var File " + varsFile + " is empty!" << endl;
+ 		cerr << "Var File " + varsFile + " is empty!" << endl;
+ 		assert(numY > 0);
+ 	}
+@@ -3937,10 +3690,6 @@ void substituteUnates(Aig_Man_t* &pMan, vector<int>&unate) {
+ 		Aig_ObjDeleteCo(pMan, Aig_ManCo(pMan,1));
+ 	}
+ 	Aig_ManCleanup(pMan);
+-
+-//	cout << "No. of pis in  AIG before substitution " << Aig_ManCiNum(pMan) << endl;
+-	// Substitute
+-//	cout << " Starting Substitution " << endl;
+ 	vector<int> varIdVec;
+ 	vector<Aig_Obj_t*> funcVec;
+ 	for (int i = 0; i < numY; ++i) {
+@@ -3953,45 +3702,17 @@ void substituteUnates(Aig_Man_t* &pMan, vector<int>&unate) {
+ 			funcVec.push_back(Aig_ManConst0(pMan));
+ 		}
+ 	}
+-//	cout << "Support of pFanin " << Aig_SupportSize(pMan, Aig_Regular(Aig_ObjFanin0(Aig_ManCo(pMan, 0))));
+- 
+ 	Aig_Obj_t* pAigObj = Aig_SubstituteVec(pMan, Aig_ManCo(pMan,0), varIdVec, funcVec);
+-	
+-//	cout << "Support of pAigObj " << Aig_SupportSize(pMan, Aig_Regular(pAigObj));
+-
+ 	Aig_ObjPatchFanin0(pMan, Aig_ManCo(pMan,0), pAigObj);
+ 	Aig_ManCleanup(pMan);
+-//	cout << "No. of pis in the aig after cleanup " << Aig_ManCiNum(pMan) << endl;
+-
+-//	cout << " Finished Substitution " << endl;
+-	// Duplicate Aig to toposort nodes
+ 	Aig_Man_t* tempAig = pMan;
+-	cout << " Duplicating AIG " << endl;
+-
+ 	pMan = Aig_ManDupSimple(pMan);
+ 	Aig_ManStop(tempAig);
+-//	cout << "No. of pis in new AIG " << Aig_ManCiNum(pMan) << endl;
+ }
+ 
+ // Assumes skolemAig[...] correspond to varsYS[...]
+ void saveSkolems(Aig_Man_t* SAig, vector<int>& skolemAig, string outfname) {
+ 	assert(skolemAig.size() == numY);
+-
+-	// // Checking Supports for all except X
+-	// cout << "Checking Support in saveSkolems" << endl;
+-	// vector<int> temp = varsXS;
+-	// sort(temp.begin(), temp.end());
+-	// int k = 0;
+-	// for (int j = 1; j <= Aig_ManCiNum(SAig); ++j) {
+-	// 	while(j==temp[k] and k<temp.size() and j <= Aig_ManCiNum(SAig)) {
+-	// 		j++;
+-	// 		k++;
+-	// 	}
+-	// 	for (int i = 0; i < numY; ++i) {
+-	// 		assert(Aig_Support(SAig, Aig_ManCo(SAig, skolemAig[i]), j) == false);
+-	// 	}
+-	// }
+-
+ 	int i;
+ 	Abc_Obj_t* pObj;
+ 
+@@ -4024,18 +3745,15 @@ void saveSkolems(Aig_Man_t* SAig, vector<int>& skolemAig, string outfname) {
+ 	Abc_NtkForEachCi(outNtk, pObj, i) {
+ 			if (i < numX )
+ 			{
+-				cout << "Assigning name " <<  (char*)varsNameX[i].c_str() << " to ci " << i << endl;
+ 				Abc_ObjAssignName(pObj, (char*)varsNameX[i].c_str(), NULL);
+ 			}
+ 			else
+ 			{
+ 				string yname =  "nn" + varsNameY[i - numX];
+-				cout << "Assigning name " <<  yname << " to ci " << i << endl;
+ 				Abc_ObjAssignName(pObj, (char*)yname.c_str(), NULL);
+ 			}
+ 	}
+ 	Abc_NtkForEachCo(outNtk, pObj, i) {
+-			cout << "Assigning name " <<  (char*)varsNameY[i].c_str() << " to co " << i << endl;
+ 		Abc_ObjAssignName(pObj, (char*)varsNameY[i].c_str(), NULL);
+ 	}
+ 
+@@ -4053,11 +3771,6 @@ void saveSkolems(Aig_Man_t* SAig, vector<int>& skolemAig, string outfname) {
+ 
+ void printAig(Aig_Man_t* pMan) {
+ 	int i;
+-	Aig_Obj_t* pAigObj;
+-	cout << "\nAig: " << endl;
+-	Aig_ManForEachObj( pMan, pAigObj, i )
+-	    Aig_ObjPrintVerbose( pAigObj, 1 ), printf( "\n" );
+-	cout << endl;
+ }
+ 
+ int Aig_ConeCountWithConstAndMark_rec( Aig_Obj_t * pObj ) {
+diff --git a/src/helper.h b/src/helper.h
+index 27ceab0..caf6000 100644
+--- a/src/helper.h
++++ b/src/helper.h
+@@ -16,9 +16,9 @@
+ #include <signal.h>
+ #include "cxxopts.hpp"
+ 
+-#ifndef NO_UNIGEN
+-#include "cusp.h"
+-#else
++// #ifndef NO_UNIGEN
++// #include "cusp.h"
++// #else
+ namespace CMSat{
+ 	class CUSP {
+ 	public:
+@@ -26,7 +26,7 @@ namespace CMSat{
+ 		static int getSolutionMapSize(){return 0;}
+ 	};
+ }
+-#endif
++// #endif
+ 
+ #define ABC_NAMESPACE NS_ABC
+ 
+@@ -86,13 +86,6 @@ using namespace ABC_NAMESPACE;
+ 	#define OUT( x )
+ #endif
+ 
+-typedef std::chrono::time_point<std::chrono::steady_clock> chrono_steady_time;
+-#define TIME_NOW			 std::chrono::steady_clock::now()
+-#define TIME_MEASURE_START   helper_time_measure_start = TIME_NOW;
+-#define TIME_MEASURE_ELAPSED (std::chrono::duration_cast<std::chrono::microseconds>(TIME_NOW-helper_time_measure_start).count()/1000000.0)
+-extern  chrono_steady_time helper_time_measure_start;
+-extern  chrono_steady_time main_time_start;
+-
+ class  edge;
+ class  node;
+ class  Nnf_Man;
+@@ -147,9 +140,6 @@ extern cxxopts::Options optParserOrdering;
+ extern optionStruct options;
+ extern optionStruct optionsOriginal;
+ extern vector<vector<int> > k2Trend;
+-extern double sat_solving_time;
+-extern double verify_sat_solving_time;
+-extern double reverse_sub_time;
+ extern vector<vector<int>> CiCloudIth;
+ extern vector<vector<int>> CoIth;
+ extern int F_SAigIndex;
+@@ -198,7 +188,7 @@ Aig_Obj_t* 		Aig_OrAigs(Aig_Man_t* pMan, Aig_Obj_t* Aig1, Aig_Obj_t* Aig2) ;
+ Aig_Obj_t* 		AND_rec(Aig_Man_t* SAig, vector<Aig_Obj_t* >& nodes, int start, int end);
+ Aig_Obj_t* 		newAND(Aig_Man_t* SAig, vector<Aig_Obj_t* >& nodes) ;
+ Aig_Obj_t* 		projectPi(Aig_Man_t* pMan, const vector<int> &cex, const int m);
+-void 			updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<vector<int> > &r0, vector<vector<int> > &r1);
++void 			updateAbsRef(Aig_Man_t*&pMan, int M, int k1Level, int k1MaxLevel, vector<vector<int> > &r0, vector<vector<int> > &r1, int curr_iter, map<int, string> id2NameF);
+ Aig_Man_t* 		compressAig(Aig_Man_t* SAig);
+ Aig_Man_t* 		compressAigByNtk(Aig_Man_t* SAig);
+ Aig_Man_t* 		compressAigByNtkMultiple(Aig_Man_t* SAig, int times);
+@@ -245,9 +235,9 @@ void			parseOptionsOrdering(int argc, char * argv[]);
+ void 			printK2Trend();
+ void 			monoSkolem(Aig_Man_t*&pMan, vector<vector<int> > &r0, vector<vector<int> > &r1);
+ string			getFileName(string s);
+-int 			checkUnateSyntacticAll(Aig_Man_t* FAig, vector<int>&unate);
+-int 			checkUnateSemanticAll(Aig_Man_t* FAig, vector<int>&unate);
+-int 			checkUnateSemAll(Aig_Man_t* FAig, vector<int>&unate);//Same as checkUnateSemanticAll but more memory efficient
++int 			checkUnateSyntacticAll(Aig_Man_t* FAig, vector<int>&unate, map<int,string>& id2NameF);
++int 			checkUnateSemanticAll(Aig_Man_t* FAig, vector<int>&unate, map<int,string>& id2NameF);
++int 			checkUnateSemAll(Aig_Man_t* FAig, vector<int>&unate, map<int,string>& id2NameF);//Same as checkUnateSemanticAll but more memory efficient
+ void 			populateVars(Abc_Ntk_t* FNtk, string varsFile, vector<string>& varOrder,
+ 					vector<int>& varsXF, vector<int>& varsYF,
+ 					map<string,int>& name2IdF, map<int,string>& id2NameF);
+diff --git a/src/nnf.cpp b/src/nnf.cpp
+index 5c8a23b..1dfe395 100644
+--- a/src/nnf.cpp
++++ b/src/nnf.cpp
+@@ -53,7 +53,7 @@ void Nnf_Man::init(Aig_Man_t* pSrc) {
+ 	// print();
+ 
+ 	int rem = Aig_ManCleanup(pSrc);
+-	cout << "Removed " << rem << " nodes during NNF cleanup" << endl;
++	// cout << "Removed " << rem << " nodes during NNF cleanup" << endl;
+ 
+ 	// cout <<"\n\nParsing..." << endl;
+ 	parse_aig(pSrc);
+@@ -693,20 +693,20 @@ vector<Nnf_Obj*> Nnf_Man::Nnf_ManDfs() {
+         Nnf_ObjClearMarkA(it);
+ 
+     if(vNodes.size() != _allNodes.size()) {
+-	    cout << "NNF: " << endl;
+-	    this->print();
++	    // cout << "NNF: " << endl;
++	    // this->print();
+ 	    set<Nnf_Obj*> a(_allNodes.begin(), _allNodes.end());
+ 	    set<Nnf_Obj*> v(vNodes.begin(), vNodes.end());
+ 
+ 	    vector<Nnf_Obj*> diff;
+ 	    set_difference(a.begin(), a.end(), v.begin(), v.end(),
+ 	        std::inserter(diff, diff.begin()));
+-	    cout << "Missing Nodes: " << endl;
++	    // cout << "Missing Nodes: " << endl;
+ 	    for(auto it:diff) {
+ 	        it->print();
+ 	    }
+-	    cout << "vNodes.size(): 	" << vNodes.size() << endl;
+-	    cout << "_allNodes.size(): 	" << _allNodes.size() << endl;
++	    // cout << "vNodes.size(): 	" << vNodes.size() << endl;
++	    // cout << "_allNodes.size(): 	" << _allNodes.size() << endl;
+ 	    // @TODO: necessary for size to be same?
+ 	    assert(vNodes.size() == _allNodes.size());
+     }
+@@ -821,11 +821,11 @@ bool Nnf_Obj::isWDNNF() {
+ 						break;
+ 					}
+ 				}
+-				if(!res) {
+-					cout << "wDNNF violation: ";
+-					this->print();
+-					cout << endl;
+-				}
++				// if(!res) {
++				// 	cout << "wDNNF violation: ";
++				// 	this->print();
++				// 	cout << endl;
++				// }
+ 			}
+ 			if(res) {
+ 				set<int>* s0 = (set<int>*) Nnf_ObjFanin0(this)->pData;
+diff --git a/src/readCnf.cpp b/src/readCnf.cpp
+index b5418d9..c3cba4b 100644
+--- a/src/readCnf.cpp
++++ b/src/readCnf.cpp
+@@ -72,7 +72,7 @@ inline string extraNumToName(int v) {
+ int main(int argc, char * argv[]) {
+     char * qdFileName;
+     if ( argc < 2 ) {
+-        cout << "Wrong number of command-line arguments. Usage: readCnf qdimacs_filename " << endl;
++        // cout << "Wrong number of command-line arguments. Usage: readCnf qdimacs_filename " << endl;
+         return 1;
+     }
+     qdFileName = argv[1];
+@@ -80,7 +80,7 @@ int main(int argc, char * argv[]) {
+ 	string baseFileName(qdFileName);
+ 	baseFileName = baseFileName.substr(baseFileName.find_last_of("/") + 1);  //Get the file name;
+ 	baseFileName.erase(baseFileName.find (".qdimacs"), string::npos); //This contains the code for the raw file name;
+-	cout << "BaseName:     " << baseFileName << endl;
++	// cout << "BaseName:     " << baseFileName << endl;
+ 
+ 	string varFileName = baseFileName + "_var.txt";
+ 	string aigFileName = baseFileName + ".v" ;
+@@ -88,28 +88,28 @@ int main(int argc, char * argv[]) {
+ 	string qdmFileName = baseFileName + ".qdimacs.noUnary" ;
+ 
+ 	readQdimacsFile(qdFileName);
+-	cout << "Finished readQdimacsFile" << endl;
++	// cout << "Finished readQdimacsFile" << endl;
+ 
+ 	// Propagate unary clauses (and more)
+ 	findLitToProp();
+-	cout << "Finished findLitToProp" << endl;
++	// cout << "Finished findLitToProp" << endl;
+ 	while(!litToPropagate.empty()) {
+ 		int toProp = litToPropagate.front();
+ 		litToPropagate.pop();
+ 		propagateLiteral(toProp);
+ 	}
+-	cout << "Finished propagateLiteral" << endl;
++	// cout << "Finished propagateLiteral" << endl;
+ 
+ 	writeNonTseitinToQdimacsFile(qdmFileName);
+ 
+ 	findDependencies();
+-	cout << "Finished findDependencies" << endl;
++	// cout << "Finished findDependencies" << endl;
+ 
+ 	assert(!checkForCycles());
+-	cout << "Finished checkForCycles" << endl;
++	// cout << "Finished checkForCycles" << endl;
+ 
+ 	reduceDependencySizes();
+-	cout << "Finished reduceDependencySizes" << endl;
++	// cout << "Finished reduceDependencySizes" << endl;
+ 
+ 	int numNonTseitin = 0;
+ 	for(int i = 0; i < allClauses.size(); i++) {
+@@ -118,8 +118,8 @@ int main(int argc, char * argv[]) {
+ 			// cout<<i<<": \t"; print(allClauses[i]);
+ 		}
+ 	}
+-	cout << "depCONST.size(): " << depCONST.size() << endl;
+-	cout << "numNonTseitin:   " << numNonTseitin << endl;
++	// cout << "depCONST.size(): " << depCONST.size() << endl;
++	// cout << "numNonTseitin:   " << numNonTseitin << endl;
+ 
+ 	writeVerilogFile(aigFileName, baseFileName);
+ 	writeVariableFile(varFileName);
+@@ -138,8 +138,8 @@ void readQdimacsFile(char * qdFileName) {
+ 	while (strcmp (C, "cnf") != 0)
+ 		fscanf (qdFPtr, "%s", C);
+ 	fscanf(qdFPtr, "%d %d", &numVars, &numClauses); // read first line p cnf
+-	cout << "numVars:       " <<  numVars << endl;
+-	cout << "NumClauses:   " << numClauses << endl;
++	// cout << "numVars:       " <<  numVars << endl;
++	// cout << "NumClauses:   " << numClauses << endl;
+ 
+ 	// Vars X
+ 	fscanf (qdFPtr, "%c", &c);
+@@ -151,7 +151,7 @@ void readQdimacsFile(char * qdFileName) {
+ 		varsX.push_back(tmpVar);
+ 		fscanf(qdFPtr, "%d", &tmpVar);
+ 	}
+-	cout << "varsX.size(): " << varsX.size() << endl;
++	// cout << "varsX.size(): " << varsX.size() << endl;
+ 	assert (numVars > varsX.size());
+ 
+ 	// Vars Y (to elim)
+@@ -164,7 +164,7 @@ void readQdimacsFile(char * qdFileName) {
+ 		varsY.push_back(tmpVar);
+ 		fscanf(qdFPtr, "%d", &tmpVar);
+ 	}
+-	cout << "varsY.size(): " << varsY.size() << endl;
++	// cout << "varsY.size(): " << varsY.size() << endl;
+ 	assert (numVars > varsY.size());
+ 
+ 	// Update numVars = maxVar
+@@ -173,9 +173,9 @@ void readQdimacsFile(char * qdFileName) {
+ 		maxVar = max(maxVar,it);
+ 	for(auto it:varsY)
+ 		maxVar = max(maxVar,it);
+-	cout << "maxVar:       " << maxVar << endl;
++	// cout << "maxVar:       " << maxVar << endl;
+ 	if(maxVar < numVars) {
+-		cout << "Setting numVars = " << maxVar << endl;
++		// cout << "Setting numVars = " << maxVar << endl;
+ 		numVars = maxVar;
+ 	}
+ 
+@@ -231,9 +231,7 @@ bool findDepAND(int y) {
+ 
+ 		bool gotcha = true;
+ 		for(auto v2: allClauses[clauseNum]) {
+-			//if(tseitinClauses[clauseNum] == true) //Required - SS?
+-			//	continue;
+-			if(v2!=y and posImplies[y].find(-v2)==posImplies[y].end()) {
++			if(v2!=y && posImplies[y].find(-v2)==posImplies[y].end()) {
+ 				gotcha = false;
+ 				break;
+ 			}
+@@ -242,14 +240,12 @@ bool findDepAND(int y) {
+ 			// Print it
+ 			string dep = "AND(";
+ 			for(auto v2: allClauses[clauseNum]) {
+-			//	if(tseitinClauses[clauseNum] == true) //Required - SS?
+-		//			continue;
+ 				if(v2!=y) {
+ 					dep = dep + to_string(-v2) + ", ";
+ 				}
+ 			}
+ 			dep = dep.substr(0,dep.length()-2) + ")";
+-			cout << "DEP" << y << " = " << dep << endl;
++			// cout << "DEP" << y << " = " << dep << endl;
+ 
+ 			// Found Dependency
+ 			// assert(depAND.find(y) == depAND.end());
+@@ -296,7 +292,7 @@ bool findDepOR(int y) {
+ 				}
+ 			}
+ 			dep = dep.substr(0,dep.length()-2) + ")";
+-			cout << "DEP" << y << " = " << dep << endl;
++			// cout << "DEP" << y << " = " << dep << endl;
+ 
+ 			// Found Dependency
+ 			// assert(depOR.find(y) == depOR.end());
+@@ -365,7 +361,7 @@ bool findDepXOR(int y) {
+ 				if(clause1foundAt != -1 and clause2foundAt != -1) {
+ 					// Print it
+ 					string dep = "XOR(" + to_string(otherVars[0]) + ", " + to_string(-otherVars[1]) + ")";
+-					cout << "DEP" << y << " = " << dep << endl;
++					// cout << "DEP" << y << " = " << dep << endl;
+ 
+ 					// Found Dependency
+ 					vector<int> res(2);
+@@ -409,8 +405,8 @@ void findLitToProp() {
+ 		auto & clause = allClauses[clauseNum];
+ 		if(clause.size() == 1) {
+ 			setConst(clause[0]);
+-			if (std::find (varsX.begin(), varsX.end(), abs (clause [0])) != varsX.end())
+-				cout << " A universally quantified variable is unary " << clause[0] << endl;
++			// if (std::find (varsX.begin(), varsX.end(), abs (clause [0])) != varsX.end())
++			// 	cout << " A universally quantified variable is unary " << clause[0] << endl;
+ 			tseitinClauses[clauseNum] = true; // Unary tseitinClauses=true
+ 		}
+ 		else if(clause.size() == 2) {
+@@ -440,12 +436,12 @@ void findLitToProp() {
+ 	for (auto var : varsY) {
+ 		if(existsAsPos[var].empty()) {
+ 			// set var = 0
+-			cout << "PureNeg" << endl;
++			// cout << "PureNeg" << endl;
+ 			setConst(-var);
+ 		}
+ 		else if(existsAsNeg[var].empty()) {
+ 			// set var = 1
+-			cout << "PurePos" << endl;
++			// cout << "PurePos" << endl;
+ 			setConst(var);
+ 		}
+ 	}
+@@ -453,7 +449,7 @@ void findLitToProp() {
+ 
+ void propagateLiteral(int lit) {
+ 	int var = abs(lit);
+-	cout << " Propogating literal " << lit << endl;
++	// cout << " Propogating literal " << lit << endl;
+ 	bool pos = lit>0;
+ 	for(auto clauseNum:existsAsPos[var]) {
+ 		if(tseitinClauses[clauseNum])
+@@ -628,7 +624,7 @@ int addFlatClausesToVerilog(ofstream&ofs, int start, int end, int&nextVar) {
+ void writeVariableFile(string fname) {
+ 	ofstream ofs (fname, ofstream::out);
+ 
+-	cout << "# Y : " << varsY.size() << endl;
++	// cout << "# Y : " << varsY.size() << endl;
+ 	for(auto it:varsY) {
+ 		if(!depFound[it])
+ 		{
+@@ -747,7 +743,7 @@ static inline void addToImpliesMap(map<int,int>&m, int lit, int clauseNum) {
+ }
+ 
+ static inline void setConst(int lit) {
+-	cout << "DEPConst " << lit << endl;
++	// cout << "DEPConst " << lit << endl;
+ 	depFound[abs(lit)] = true;
+ 	depCONST.insert(lit);
+ 	litToPropagate.push(lit);
+@@ -809,7 +805,7 @@ bool DFS_checkForCycles(vector<set<int> >& graph, int node, vector<int>& DFS_sta
+ 	if(DFS_startTime[node] != -1) {
+ 		if(DFS_endTime[node] == -1) {
+ 			// Back Edge
+-			cout << "Found dependency cycle: ";
++			// cout << "Found dependency cycle: ";
+ 			return true;
+ 		}
+ 		else {
+@@ -823,21 +819,17 @@ bool DFS_checkForCycles(vector<set<int> >& graph, int node, vector<int>& DFS_sta
+ //If a cycle is present, break it by removing a dependency
+ 	for(auto it:graph[node]) {
+ 		if(DFS_checkForCycles(graph, it, DFS_startTime, DFS_endTime, DFS_currTime)) {
+-			cout << it << " ";
+-		if (depAND.find(node) != depAND.end()) {
+-			cout << "Breaking AND dep " << endl;
+-			depAND.erase(node);	
+-		}
+-		else 
+-		if (depXOR.find(node) != depXOR.end()) {
+-			cout << "Breaking XOR dep " << endl;
+-			depXOR.erase(node);	
+-		}
+-		else 
+-		if (depOR.find(node) != depOR.end()) {
+-			cout << "Breaking OR dep " << endl;
+-			depOR.erase(node);	
+-		}
++			// cout << it << " ";
++			if (depAND.find(node) != depAND.end()) {
++				// cout << "Breaking AND dep " << endl;
++				depAND.erase(node);	
++			} else if (depXOR.find(node) != depXOR.end()) {
++				// cout << "Breaking XOR dep " << endl;
++				depXOR.erase(node);	
++			} else if (depOR.find(node) != depOR.end()) {
++				// cout << "Breaking OR dep " << endl;
++				depOR.erase(node);	
++			}
+ 		}
+ 	}
+ 
+diff --git a/src/revsub.cpp b/src/revsub.cpp
+index 9c7b93a..6b7bb62 100644
+--- a/src/revsub.cpp
++++ b/src/revsub.cpp
+@@ -114,7 +114,7 @@ void write_output (ifstream& ifs, ofstream& ofs, string& line)
+         collect += ";" ;
+     ofs << collect << endl;
+ 	//ofs << ";" << endl;
+-	cout << "# Y " << varsY.size() << endl;
++	// cout << "# Y " << varsY.size() << endl;
+     if (varsY.size() == 0)
+     {
+         cerr << "Error : Could not find any output variables!" << endl;
+@@ -246,7 +246,7 @@ int main(int argc, char * argv[])
+  	string baseFileName(norsfname);
+ 	baseFileName = baseFileName.substr(baseFileName.find_last_of("/") + 1);  //Get the file name;
+ 	baseFileName.erase(baseFileName.find ("norevsub.v"), string::npos); //This contains the code for the raw file name;
+-	cout << "BaseName:     " << baseFileName << endl;
++	// cout << "BaseName:     " << baseFileName << endl;
+ 
+ 	string rsFileName = baseFileName + "result.v";
+ 	performRevSub ( norsfname, rsFileName);
+diff --git a/src/verify.cpp b/src/verify.cpp
+index eca09b4..98eeb4a 100644
+--- a/src/verify.cpp
++++ b/src/verify.cpp
+@@ -31,10 +31,6 @@ Abc_Ntk_t* getNtk(string pFileName);
+ void populateVars(Abc_Ntk_t* FNtk, Aig_Man_t* FAig, Abc_Ntk_t* skolemNtk, string varsFile, bool verilogInput);
+ string getFileName(string s);
+ 
+-
+-chrono_steady_time helper_time_measure_start = TIME_NOW;
+-chrono_steady_time main_time_start = TIME_NOW;
+-
+ /** Function
+  * Compresses Aig by converting it to an Ntk and performing a bunch of steps on it.
+  * Deletes SAig and returns a compressed version
+@@ -44,41 +40,27 @@ chrono_steady_time main_time_start = TIME_NOW;
+ Aig_Man_t* compressAigByNtkMultiple(Aig_Man_t* SAig, int times) {
+ 	Aig_Man_t* temp;
+ 	string command;
+-
+-	OUT("Cleaning up...");
+ 	int removed = Aig_ManCleanup(SAig);
+-	cout << "Removed " << removed <<" nodes" << endl;
+-
+ 	Abc_Ntk_t * SNtk = Abc_NtkFromAigPhase(SAig);
+ 	Abc_FrameSetCurrentNetwork(pAbc, SNtk);
+ 
+ 	command = "rewrite -lz; refactor -l;";
+-
+-	TIME_MEASURE_START
+ 	cout << "balancing... ";
+ 	if (Cmd_CommandExecute(pAbc, "balance;")) {
+ 		cout << "Cannot preprocess SNtk" << endl;
+ 		return NULL;
+ 	}
+-	cout << "took " << TIME_MEASURE_ELAPSED << endl;
+ 
+ 	for (int i = 0; i < times; ++i)	{
+-		cout << "cycle " << i << ": " << command;
+-		TIME_MEASURE_START
+ 		if (Cmd_CommandExecute(pAbc, (char*)command.c_str())) {
+-			cout << "Cannot preprocess SNtk, took " << TIME_MEASURE_ELAPSED << endl;
+ 			return NULL;
+ 		}
+-		cout << "took " << TIME_MEASURE_ELAPSED << endl;
+ 	}
+-
+-	TIME_MEASURE_START
+ 	cout << "balancing... ";
+ 	if (Cmd_CommandExecute(pAbc, "balance;")) {
+ 		cout << "Cannot preprocess SNtk" << endl;
+ 		return NULL;
+ 	}
+-	cout << "took " << TIME_MEASURE_ELAPSED << endl;
+ 
+ 	SNtk = Abc_FrameReadNtk(pAbc);
+ 	temp = Abc_NtkToDar(SNtk, 0, 0);
+@@ -86,28 +68,6 @@ Aig_Man_t* compressAigByNtkMultiple(Aig_Man_t* SAig, int times) {
+ 	return temp;
+ }
+ 
+-//Generate clauses for a = b and feed to the sat solver
+-
+-/*
+-This gives an assert fail error on a few benchmarks 
+-void EquateCC (sat_solver * pSat, int a, int b )
+-{
+-    //cout << " Equating " << a << " and " << b << endl;
+-    lit Lits[2];
+-	Lits[0] = toLitCond( a, 0 );
+-	Lits[1] = toLitCond( b, 1 );
+-		cout << " Adding clause " <<  Lits [0] << " " << Lits [1] << endl;
+-    if ( !sat_solver_addclause( pSat, Lits, Lits+2 ) )
+-         		assert( 0 );
+-
+-	Lits[0] = toLitCond( a, 1 );
+-	Lits[1] = toLitCond( b, 0 );
+-	//	cout << " Adding clause " <<  Lits [0] << " " << Lits [1] << endl;
+-        	if ( !sat_solver_addclause( pSat, Lits, Lits+2 ) )
+-            		assert( 0 );
+-}
+-*/
+-
+ //Copied  Equate in helper.cpp
+ bool EquateC(sat_solver *pSat, int varA, int varB) {
+ 	lit Lits[3];
