@@ -1,0 +1,190 @@
+diff --git a/configure b/configure
+index 6fa8582..42a4aac 100755
+--- a/configure
++++ b/configure
+@@ -1,9 +1,7 @@
+-#!/usr/bin/env bash
+-
+ # clean up old artifacts (if any)
+ if [ -e "Makefile" ]; then
+-  echo "Clean old artifacts"
+-  make clean
++    echo "Clean old artifacts"
++    make clean
+ fi
+ 
+ prefix=/usr/local
+@@ -43,13 +41,13 @@ if $debugsym; then
+     echo 'CFLAGS = -g -DDEBUG -Wall -Wextra -pedantic' >> Makefile
+     echo 'CPPFLAGS = -g -DDEBUG -Wall -Wextra -pedantic' >> Makefile
+ else
+-  echo 'CFLAGS = -O3 -flto -DNDEBUG' >> Makefile
+-  echo 'CPPFLAGS = -O3 -flto -DNDEBUG' >> Makefile
++    echo 'CFLAGS = -O3 -flto -DNDEBUG' >> Makefile
++    echo 'CPPFLAGS = -O3 -flto -DNDEBUG' >> Makefile
+ fi
+ 
+ if [ "$satsolver" = "minisat" ]; then
+-  echo 'CFLAGS += -DUSE_MINISAT' >> Makefile
+-  echo 'CPPFLAGS += -DUSE_MINISAT' >> Makefile
++    echo 'CFLAGS += -DUSE_MINISAT' >> Makefile
++    echo 'CPPFLAGS += -DUSE_MINISAT' >> Makefile
+ fi
+ 
+ if [[ "$OSTYPE" == "linux-gnu" ]]; then
+diff --git a/src/c2_rl.c b/src/c2_rl.c
+index 15d9193..8e96eb1 100644
+--- a/src/c2_rl.c
++++ b/src/c2_rl.c
+@@ -356,6 +356,7 @@ int_vector* c2_rl_necessary_learnt_clauses(C2* solver) {
+         }
+         if (!c->original) {
+             // this is a learnt clause or a minimized clause
++            qcnf_print_clause(c, stdout);
+             unsigned universal = qcnf_fresh_universal(qcnf_copy);
+             map_add(lc_vars, (int) universal, (void*)(size_t) c->clause_idx); // clause_idxs of new and c may differ
+             int_vector_add(universal_assumptions, (int) universal);
+diff --git a/src/c2_traces.c b/src/c2_traces.c
+index 0f4cf2d..0850f6c 100644
+--- a/src/c2_traces.c
++++ b/src/c2_traces.c
+@@ -196,14 +196,14 @@ void c2_print_learnt_clause_color_legend() {
+ }
+ 
+ void c2_log_clause(C2* c2, Clause* c) {
+-    if (debug_verbosity >= VERBOSITY_MEDIUM || c2->options->trace_learnt_clauses) {
+-        c2_print_learnt_clause_color_legend();
++    // if (debug_verbosity >= VERBOSITY_MEDIUM || c2->options->trace_learnt_clauses) {
++        // c2_print_learnt_clause_color_legend();
+         
+         for (unsigned i = 0; i < c->size; i++) {
+             c2_print_colored_literal_name(c2, c2_literal_color(c2, c, c->occs[i]), c->occs[i]);
+         }
+         LOG_COLOR(KNRM, "\n");
+-    }
++    // }
+ }
+ 
+ void c2_trace_for_profiling_initialize(Options* o, SATSolver* s) {
+diff --git a/src/cadet2.c b/src/cadet2.c
+index ec112c6..4d31a94 100644
+--- a/src/cadet2.c
++++ b/src/cadet2.c
+@@ -352,13 +352,19 @@ void c2_propagate(C2* c2) {
+ 
+ // MAIN LOOPS
+ void c2_run(C2* c2, unsigned remaining_conflicts) {
+-    
++    double start_of_iter = 0;
++    bool first_iter = true;
+     while (remaining_conflicts > 0 && (c2->options->hard_decision_limit == 0 || c2->statistics.decisions < c2->options->hard_decision_limit)) {
+         V4("\nEntering main loop at dlvl %u.\n", c2->skolem->decision_lvl);
+         assert(c2->state == C2_READY || c2->state == C2_SKOLEM_CONFLICT || c2->state == C2_EXAMPLES_CONFLICT);
+         assert(c2->skolem->decision_lvl >= c2->restart_base_decision_lvl);
+         assert(c2->skolem->stack->push_count == c2->skolem->decision_lvl);
+-        
++        if (!first_iter){
++            fprintf(stderr, "iter_time: %fs\n", get_seconds() - start_of_iter);
++        } else {
++            first_iter = false;
++        }
++        start_of_iter = get_seconds();
+         c2_propagate(c2);
+         
+         if (c2_is_in_conflcit(c2)) {
+@@ -828,7 +834,7 @@ cadet_res c2_solve_qdimacs(const char* file_name, Options* options) {
+         V0("Reading from stdin\n");
+         file = stdin;
+     } else {
+-        V0("Processing file \"%s\".\n", file_name);
++        // V0("Processing file \"%s\".\n", file_name);
+         file = open_possibly_zipped_file(file_name);
+     }
+     C2* c2 = c2_from_file(file, options);
+@@ -862,10 +868,10 @@ cadet_res c2_solve_qdimacs(const char* file_name, Options* options) {
+     }
+     switch (res) {
+         case CADET_RESULT_UNKNOWN:
+-            V0("UNKNOWN\n");
++            // V0("UNKNOWN\n");
+             break;
+         case CADET_RESULT_SAT:
+-            V0("SAT\n");
++            // V0("SAT\n");
+             if (log_qdimacs_compliant) {
+                 printf("s cnf 1\n");
+             }
+@@ -874,7 +880,7 @@ cadet_res c2_solve_qdimacs(const char* file_name, Options* options) {
+             }
+             break;
+         case CADET_RESULT_UNSAT:
+-            V0("UNSAT\n");
++            // V0("UNSAT\n");
+             assert(c2->state == C2_UNSAT);
+             abortif(c2->options->functional_synthesis,
+                     "Should not reach UNSAT output in functional synthesis mode.");
+@@ -883,7 +889,7 @@ cadet_res c2_solve_qdimacs(const char* file_name, Options* options) {
+             }
+             
+             V1("  UNSAT via Skolem conflict.\n");
+-            c2_print_qdimacs_output(c2_refuting_assignment(c2));
++            // c2_print_qdimacs_output(c2_refuting_assignment(c2));
+             abortif(c2->options->certify_internally_UNSAT && ! cert_check_UNSAT(c2),
+                     "Check failed! UNSAT result could not be certified.");
+             V1("Result verified.\n");
+@@ -904,7 +910,9 @@ cadet_res c2_solve_qdimacs(const char* file_name, Options* options) {
+ //                    "Check failed! UNSAT result could not be certified.");
+             break;
+     }
+-    c2_free(c2);
++    double total_time_passed = get_seconds() - c2->statistics.start_time;
++    fprintf(stderr, "total time: %fs\n", total_time_passed);
++    c2_free(c2);    
+     return res;
+ }
+ 
+@@ -963,11 +971,12 @@ int c2_val (C2* c2, int lit) {
+ 
+ 
+ void c2_print_colored_literal_name(C2* c2, char* color, int lit) {
+-    char* name = qcnf_get_variable_name(c2->qcnf, lit_to_var(lit));
+-    if (!c2->options->print_variable_names || name == NULL) {
+-        LOG_COLOR(color, " %d", lit);
+-    } else {
+-        LOG_COLOR(color, " %s%s", lit > 0 ? "" : "-", name);
+-    }
++    // char* name = qcnf_get_variable_name(c2->qcnf, lit_to_var(lit));
++    // if (!c2->options->print_variable_names || name == NULL) {
++    //     LOG_COLOR(color, " %d", lit);
++    // } else {
++    //     LOG_COLOR(color, " %s%s", lit > 0 ? "" : "-", name);
++    // }
++    printf(" %d", lit);
+ }
+ 
+diff --git a/src/main.c b/src/main.c
+index b73a849..cbd5ca5 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -268,7 +268,7 @@ int main(int argc, const char* argv[]) {
+         LOG_WARNING("Verbosity is medium or higher and comment prefix is set. May result in cluttered log.");
+     }
+     
+-    V0("CADET %s\n", VERSION);
++    // V0("CADET %s\n", VERSION);
+     
+     options_print(options);
+     
+diff --git a/src/qcnf.c b/src/qcnf.c
+index 1c3e752..f2a70c3 100644
+--- a/src/qcnf.c
++++ b/src/qcnf.c
+@@ -664,7 +664,7 @@ void qcnf_print_clause(Clause* c, FILE* f) {
+         for (int i = 0; i < c->size; i++) {
+             fprintf(f, "%d ", c->occs[i]);
+         }
+-        fprintf(f, "0\n");
++        fprintf(f, "%d\n", 0);
+     }
+ }
+ 
