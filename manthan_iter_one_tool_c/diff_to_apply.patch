@@ -1,0 +1,670 @@
+diff --git a/manthan.py b/manthan.py
+index 860cb9e..1a4faa4 100644
+--- a/manthan.py
++++ b/manthan.py
+@@ -30,7 +30,6 @@ import math
+ import random
+ import argparse
+ import copy
+-import tempfile
+ import numpy as np
+ from numpy import count_nonzero
+ from sklearn import tree
+@@ -41,6 +40,7 @@ import networkx as nx
+ 
+ 
+ SAMPLER_CMS = 1
++inputfile_name = ""
+ 
+ 
+ class cexmodels:
+@@ -71,7 +71,7 @@ def dummping_data(text):
+ 
+ def preprocess(varlistfile,verilog):
+     inputfile_name = verilog.split(".v")[0]
+-    cmd = "./dependencies/preprocess -b %s -v %s > /dev/null 2>&1 " % (
++    cmd = "/home/avziv3/work/manthan/dependencies/preprocess -b %s -v %s > /dev/null 2>&1 " % (
+         verilog, varlistfile)
+     os.system(cmd)
+     pos_unate = []
+@@ -151,54 +151,54 @@ def preprocess(varlistfile,verilog):
+ 
+ def get_sample_cms(allvar_map, cnf_content, no_samples):
+ 
+-	if args.qdimacs:
+-		inputfile_name = args.input.split("/")[-1][:-8]
+-	else:
+-		inputfile_name = args.input.split("/")[-1][:-2]
+-
+-	tempcnffile = tempfile.gettempdir() + '/' + inputfile_name + ".cnf"
+-	f = open(tempcnffile, "w")
+-	f.write(cnf_content)
+-	f.close()
+-	tempoutputfile = tempfile.gettempdir() + '/' + inputfile_name + "_.txt"
+-	if args.weighted:
+-		print("weighted samples....")
+-		cmd = "./dependencies/cryptominisat5 -n1 --sls 0 --comps 0"
+-		cmd += " --restart luby  --nobansol --maple 0 --presimp 0"
+-		cmd += " --polar weight --freq 0.9999 --verb 0 --scc 0"
+-		cmd += " --random %s --maxsol %s" % (args.seed, no_samples)
+-		cmd += " %s" % (tempcnffile)
+-		cmd += " --dumpresult %s > /dev/null 2>&1" % (tempoutputfile)
+-	else:
+-		print("uniform samples....")
+-		cmd = "./dependencies/cryptominisat5 --restart luby"
+-		cmd += " --maple 0 --verb 0 --nobansol"
+-		cmd += " --scc 1 -n1 --presimp 0 --polar rnd --freq 0.9999"
+-		cmd += " --random %s --maxsol %s" % (args.seed, no_samples)
+-		cmd += " %s" % (tempcnffile)
+-		cmd += " --dumpresult %s > /dev/null 2>&1" % (tempoutputfile)
+-	if args.verbose:
+-		print("cmd: ", cmd)
+-	os.system(cmd)
+-	with open(tempoutputfile, 'r') as f:
+-		content = f.read()
+-	f.close()
+-	os.unlink(tempoutputfile)
+-	os.unlink(tempcnffile)
+-	content = content.replace("SAT\n", "").replace(
+-		"\n", " ").strip(" \n").strip(" ")
+-	models = content.split(" ")
+-	models = np.array(models)
+-	if(models[len(models) - 1] != '0'):
+-		models = np.delete(models, len(models) - 1, axis=0)
+-	index = np.where(models == "0")[0][0]
+-	var_model = np.reshape(models, (-1, index + 1)).astype(np.int)
+-	one = np.ones(len(allvar_map), dtype=int)
+-	allvar_map = np.subtract(allvar_map, one).astype(np.int)
+-	var_model = var_model[:, allvar_map]
+-	var_model = var_model > 1
+-	var_model = var_model.astype(np.int)
+-	return var_model
++    if args.qdimacs:
++        inputfile_name = args.input.split("/")[-1][:-8]
++    else:
++        inputfile_name = args.input.split("/")[-1][:-2]
++    tempcnffile = os.path.join("/home/avziv3/work/verilog", "%s.cnf" %inputfile_name)
++    os.system("touch %s" % tempcnffile)
++    f = open(tempcnffile, "w")
++    f.write(cnf_content)
++    f.close()
++    tempoutputfile = os.path.join("/home/avziv3/work/verilog", "%s_.txt" % inputfile_name)
++    if args.weighted:
++        print("weighted samples....")
++        cmd = "/home/avziv3/work/manthan/dependencies/cryptominisat5 -n1 --sls 0 --comps 0"
++        cmd += " --restart luby  --nobansol --maple 0 --presimp 0"
++        cmd += " --polar weight --freq 0.9999 --verb 0 --scc 0"
++        cmd += " --random %s --maxsol %s" % (args.seed, no_samples)
++        cmd += " %s" % (tempcnffile)
++        cmd += " --dumpresult %s > /dev/null 2>&1" % (tempoutputfile)
++    else:
++        print("uniform samples....")
++        cmd = "/home/avziv3/work/manthan/dependencies/cryptominisat5 --restart luby"
++        cmd += " --maple 0 --verb 0 --nobansol"
++        cmd += " --scc 1 -n1 --presimp 0 --polar rnd --freq 0.9999"
++        cmd += " --random %s --maxsol %s" % (args.seed, no_samples)
++        cmd += " %s" % (tempcnffile)
++        cmd += " --dumpresult %s > /dev/null 2>&1" % (tempoutputfile)
++    if args.verbose:
++        print("cmd: ", cmd)
++    os.system(cmd)
++    with open(tempoutputfile, 'r') as f:
++        content = f.read()
++    f.close()
++    os.unlink(tempoutputfile)
++    os.unlink(tempcnffile)
++    content = content.replace("SAT\n", "").replace(
++        "\n", " ").strip(" \n").strip(" ")
++    models = content.split(" ")
++    models = np.array(models)
++    if(models[len(models) - 1] != '0'):
++        models = np.delete(models, len(models) - 1, axis=0)
++    index = np.where(models == "0")[0][0]
++    var_model = np.reshape(models, (-1, index + 1)).astype(np.int)
++    one = np.ones(len(allvar_map), dtype=int)
++    allvar_map = np.subtract(allvar_map, one).astype(np.int)
++    var_model = var_model[:, allvar_map]
++    var_model = var_model > 1
++    var_model = var_model.astype(np.int)
++    return var_model
+ 
+ 
+ def treepaths(root, is_leaves, children_left, children_right, data_feature_names, feature, values, dependson):
+@@ -310,9 +310,9 @@ def learn_skf(samples, Xvar, Yvar, Xvar_map,Yvar_map, pos_unate, neg_unate, dg):
+ 
+     # For create decision tree, we need feature names, feature data and label data
+     if args.qdimacs:
+-    	inputfile_name = args.input.split('/')[-1][:-8]
++        inputfile_name = args.input.split('/')[-1][:-8]
+     else:
+-    	inputfile_name =  args.input.split("/")[-1][:-2]
++        inputfile_name =  args.input.split("/")[-1][:-2]
+     candidateskf = {}
+     for i in Yvar:
+         feat_name = np.arange(len(Xvar) + len(Yvar))
+@@ -335,10 +335,10 @@ def learn_skf(samples, Xvar, Yvar, Xvar_map,Yvar_map, pos_unate, neg_unate, dg):
+         label = samples[:, i]
+         psi_i, D = create_decision_tree(feat_name, feat_data, label, i)
+         D = list(set(D) - set(Xvar))
+-        # cyclic dependencies due to only Y variables
++        # cyclic/work/manthan/dependencies due to only Y variables
+         candidateskf[i] = psi_i
+ 
+-        # update dependenciess:
++        # update/work/manthan/dependenciess:
+         for j in D:
+             dg.add_edge(i, j)
+ 
+@@ -352,9 +352,9 @@ def learn_skf(samples, Xvar, Yvar, Xvar_map,Yvar_map, pos_unate, neg_unate, dg):
+ 
+         for i in candidateskf.keys():
+             if (i in pos_unate) or (i in neg_unate):
+-                dummping_data("\n\nunates %s\n" %(Yvar_map[i]))
++                dummping_data("\n\nunates %s\n" %(i+1))
+                 continue
+-            dummping_data("\n\nc candidate skf for %s" %(Yvar_map[i]))
++            dummping_data("\n\nc candidate skf for %s" %(i+1))
+             dummping_data("c or of all the paths")
+             # for every path with leaf node 1
+             or_paths = candidateskf[i].split("|")
+@@ -367,21 +367,19 @@ def learn_skf(samples, Xvar, Yvar, Xvar_map,Yvar_map, pos_unate, neg_unate, dg):
+                         if "~i" in stri:
+                             temp_str += "-"
+                             stri = stri.replace("~i","")
+-                        stri = int(stri.strip(" (").strip(" )").strip(" ").replace("i",""))
+-                        if stri in Yvar_map.keys():
+-                            temp_str += str(Yvar_map[stri])+" "
+-                        else:
+-                            temp_str += str(Xvar_map[stri])+" "
++                        stri = int(stri.strip(" (").strip(" )").strip(" ").replace("i",""))+1
++                        temp_str += str(stri)+" "
++                        # if stri in Yvar_map.keys():
++                        #     temp_str += str(stri)+" "
++                        # else:
++                        #     temp_str += str(stri)+" "
+                 dummping_data(temp_str)
+ 
+ 
+ 
+     # we have candidate skolem functions for every y in Y
+     # Now, lets generate Skolem formula F(X,Y') : input X and output Y'
+-    tempOutputFile = tempfile.gettempdir() + \
+-        '/' + inputfile_name + \
+-        "_skolem.v"  # F(X,Y')
+-
++    tempOutputFile = os.path.join("/home/avziv3/work/verilog", "%s_skolem.v" % inputfile_name)
+     inputstr = 'module SKOLEMFORMULA ('
+     declarestr = ''
+     assignstr = ''
+@@ -457,21 +455,16 @@ def call_maxsat(refine_maxsat_content, Yvar, Yvar_map, modelyp, modely, unates,
+     refine_maxsat_content += maxsatstr
+     
+     if args.qdimacs:
+-    	inputfile_name = args.input.split('/')[-1][:-8]
++        inputfile_name = args.input.split('/')[-1][:-8]
+     else:
+-    	inputfile_name =  args.input.split("/")[-1][:-2]
+-    maxsatformula = tempfile.gettempdir() + \
+-        '/' + inputfile_name + "_maxsat.cnf"
+-    
+-    # outputfile = tempfile.gettempdir()+'/'+"o" #openwbo has a limit on
+-    # characters of filename
+-
++        inputfile_name =  args.input.split("/")[-1][:-2]
++    maxsatformula = os.path.join("/home/avziv3/work/verilog", "%s_maxsat.cnf" % inputfile_name) 
+     outputfile = "o.txt"
+     f = open(maxsatformula, "w")
+     f.write(refine_maxsat_content)
+     f.close()
+ 
+-    cmd = "./dependencies/open-wbo %s -print-unsat-soft=%s > /dev/null 2>&1 " % (
++    cmd = "/home/avziv3/work/manthan/dependencies/open-wbo %s -print-unsat-soft=%s > /dev/null 2>&1 " % (
+         maxsatformula, outputfile)
+     if args.verbose:
+         print("maxsat :", cmd)
+@@ -510,29 +503,28 @@ def call_maxsat(refine_maxsat_content, Yvar, Yvar_map, modelyp, modely, unates,
+ 
+ 
+ def add_skolem_to_errorformula(error_content, selfsub):
+-	
+-	if args.qdimacs:
+-		inputfile_name = args.input.split('/')[-1][:-8]
+-	else:
+-		inputfile_name = args.input.split('/')[-1][:-2]
+-	skolemformula = tempfile.gettempdir() + '/' + inputfile_name + "_skolem.v"
+-	with open(skolemformula, 'r') as f:
+-		skolemcontent = f.read()
+-	f.close()
+-	errorformula = tempfile.gettempdir() + '/' + inputfile_name + "_errorformula.v"
+-	skolemcontent_write = ''
+-	if len(selfsub) != 0:
+-		for all_selfsub_var in selfsub:
+-			file_open = open(
+-				tempfile.gettempdir()+"/selfsub/formula%s_true.v" % (all_selfsub_var), "r")
+-			content = file_open.read()
+-			file_open.close()
+-			skolemcontent_write += "\n" + content
+-	f = open(errorformula, "w")
+-	f.write(error_content)
+-	f.write(skolemcontent)
+-	f.write(skolemcontent_write)
+-	f.close()
++    
++    if args.qdimacs:
++        inputfile_name = args.input.split('/')[-1][:-8]
++    else:
++        inputfile_name = args.input.split('/')[-1][:-2]
++    skolemformula = os.path.join("/home/avziv3/work/verilog", "%s_skolem.v" % inputfile_name)
++    with open(skolemformula, 'r') as f:
++        skolemcontent = f.read()
++    f.close()
++    errorformula = os.path.join("/home/avziv3/work/verilog", "%s_errorformula.v" % inputfile_name)
++    skolemcontent_write = ''
++    if len(selfsub) != 0:
++        for all_selfsub_var in selfsub:
++            file_open = open(os.path.join("/home/avziv3/work/verilog", "selfsub_formula%s_%s_true.v" % (inputfile_name, all_selfsub_var)), "r")
++            content = file_open.read()
++            file_open.close()
++            skolemcontent_write += "\n" + content
++    f = open(errorformula, "w")
++    f.write(error_content)
++    f.write(skolemcontent)
++    f.write(skolemcontent_write)
++    f.close()
+ 
+ 
+ def create_error_formula(Xvar, Yvar, verilog_formula):
+@@ -581,15 +573,15 @@ def create_error_formula(Xvar, Yvar, verilog_formula):
+ def verify(Xvar, Yvar):
+ 
+     if args.qdimacs:
+-    	inputfile_name = args.input.split("/")[-1][:-8]
++        inputfile_name = args.input.split("/")[-1][:-8]
+     else:
+-    	inputfile_name = args.input.split("/")[-1][:-2]
+-    errorformula = tempfile.gettempdir() + '/' + inputfile_name + "_errorformula.v"
+-    cexfile = tempfile.gettempdir() + '/' + inputfile_name + "_cex.txt"
++        inputfile_name = args.input.split("/")[-1][:-2]
++    errorformula = os.path.join("/home/avziv3/work/verilog", "%s_errorformula.v" % inputfile_name)
++    cexfile = os.path.join("/home/avziv3/work/verilog", "%s_cex.txt" % inputfile_name)
+     e = os.path.isfile("strash.txt")
+     if e:
+         os.system("rm strash.txt")
+-    cmd = "./dependencies/file_generation_cex %s %s  > /dev/null 2>&1" % (
++    cmd = "/home/avziv3/work/manthan/dependencies/file_generation_cex %s %s  > /dev/null 2>&1" % (
+         errorformula, cexfile)
+     if args.verbose:
+         print("verify:", cmd)
+@@ -650,23 +642,22 @@ def find_unsat_core(refine_cnf_content, yi, yi_map, yi_model, yj_map, yj_model,
+     refine_cnf_content += cnf_str.strip("\n")
+ 
+     if args.qdimacs:
+-    	inputfile_name = args.input.split('/')[-1][:-8]
++        inputfile_name = args.input.split('/')[-1][:-8]
+     else:
+-    	inputfile_name = args.input.split('/')[-1][:-2]
++        inputfile_name = args.input.split('/')[-1][:-2]
+ 
+-    cnffile = tempfile.gettempdir()+'/'+inputfile_name+"_unsat.cnf"
++    cnffile = os.path.join("/home/avziv3/work/verilog", "%s_unsat.cnf" % inputfile_name)
+ 
+     f = open(cnffile, "w")
+     f.write(refine_cnf_content)
+     f.close()
+-    unsatcorefile = tempfile.gettempdir() + \
+-        '/' + inputfile_name + "_unsatcore.txt"
+-    satfile = tempfile.gettempdir() + '/' + inputfile_name + "_sat.txt"
++    unsatcorefile = os.path.join("/home/avziv3/work/verilog", "%s_unsatcore.txt" % inputfile_name)
++    satfile = os.path.join("/home/avziv3/work/verilog", "%s_sat.txt" % inputfile_name)
+     
+     exists = os.path.isfile(unsatcorefile)
+     if exists:
+         os.remove(unsatcorefile)
+-    cmd = "./dependencies/picosat -s %s -V %s %s >  %s" % (
++    cmd = "/home/avziv3/work/manthan/dependencies/picosat -s %s -V %s %s >  %s" % (
+         args.seed, unsatcorefile, cnffile, satfile)
+     if args.verbose == 2:
+         print("unsatcore :", cmd)
+@@ -745,31 +736,33 @@ def selfsubstitute(Xvar, Yvar, var, yi, selfsub, verilog_formula):
+         write_str += "wire zero;\n" + "assign zero = 0;\n"
+         formula_true = inputstr.replace("#", "one")
+         formula_false = inputstr.replace("#", "zero")
+-        file = open(tempfile.gettempdir()+"/selfsub/formula%s_true.v" % (var), "w")
++        false_self_sub_f = os.path.join("/home/avziv3/work/verilog", "selfsub_formula%s_%s_false.v" % (inputfile_name, var))
++        true_self_sub_f = os.path.join("/home/avziv3/work/verilog", "selfsub_formula%s_%s_true.v" % (inputfile_name, var))
++        file = open(true_self_sub_f, "w")
+         file.write(write_str_true + write_str + formula_true + "\n")
+         file.write(verilog_formula)
+         file.close()
+-        file = open(tempfile.gettempdir()+"/selfsub/formula%s_false.v" % (var), "w")
++        file = open(false_self_sub_f, "w")
+         file.write(write_str_false + write_str + formula_false + "\n")
+         file.write(verilog_formula)
+         file.close()
+-        cmd = "./dependencies/file_write_verilog %s/selfsub/formula%s_true.v %s/selfsub/formula%s_true.v  > /dev/null 2>&1" % (
+-            tempfile.gettempdir(), var, tempfile.gettempdir(),var)
++        cmd = "/home/avziv3/work/manthan/dependencies/file_write_verilog %s %s > /dev/null 2>&1" % (true_self_sub_f, true_self_sub_f)
+         os.system(cmd)
+-        cmd = "./dependencies/file_write_verilog %s/selfsub/formula%s_false.v %s/selfsub/formula%s_false.v > /dev/null 2>&1" % (
+-            tempfile.gettempdir(), var, tempfile.gettempdir(),var)
++        cmd = "/home/avziv3/work/manthan/dependencies/file_write_verilog %s %s > /dev/null 2>&1" % (false_self_sub_f, false_self_sub_f)
+         os.system(cmd)
+         return_string = 'wire outsub%s ;\nFORMULA%s_true F%s_ ( %s outsub%s);\n' % (
+             var, var, var, selfsub_inputstr, var)
+     else:
+         last_update = selfsub[index_selfsub - 1]
+-        file = open(tempfile.gettempdir()+"/selfsub/formula%s_true.v" % (last_update), "r")
++        false_self_sub_f = os.path.join("/home/avziv3/work/verilog", "selfsub_formula%s_%s_false.v" % (inputfile_name, last_update))
++        true_self_sub_f = os.path.join("/home/avziv3/work/verilog", "selfsub_formula%s_%s_true.v" % (inputfile_name, last_update))
++        file = open(true_self_sub_f, "r")
+         file_content_true = file.read()
+         file.close()
+-        file = open(tempfile.gettempdir()+"/selfsub/formula%s_false.v" % (last_update), "r")
++        file = open(false_self_sub_f, "r")
+         file_content_false = file.read()
+         file.close()
+-        os.remove(tempfile.gettempdir()+"/selfsub/formula%s_false.v" % (last_update))
++        os.remove(false_self_sub_f)
+         inputstr = ''
+         selfsub_inputstr = ''
+         selfsub_declarestr = ''
+@@ -803,24 +796,24 @@ def selfsubstitute(Xvar, Yvar, var, yi, selfsub, verilog_formula):
+             last_update, last_update, formula_false)
+         formula_false2 = "FORMULA%s_true F%s( %sout1 );\n" % (
+             last_update, last_update, formula_false)
+-        file = open(tempfile.gettempdir()+"/selfsub/formula%s_true.v" % (var), "w")
++        false_self_sub_f = os.path.join("/home/avziv3/work/verilog", "selfsub_formula%s_%s_false.v" % (inputfile_name, var))
++        true_self_sub_f = os.path.join("/home/avziv3/work/verilog", "selfsub_formula%s_%s_true.v" % (inputfile_name, var))
++        file = open(true_self_sub_f, "w")
+         file.write(write_str_true + write_str + formula_true1 + formula_true2)
+         file.write("assign out = out1 | out2 ;\n" + "endmodule\n")
+         file.write(file_content_true + "\n")
+         file.write(file_content_false + "\n")
+         file.close()
+-        file = open(tempfile.gettempdir()+"/selfsub/formula%s_false.v" % (var), "w")
++        file = open(false_self_sub_f, "w")
+         file.write(write_str_false + write_str +
+                    formula_false1 + formula_false2)
+         file.write("assign out = out1 | out2 ;\n" + "endmodule\n")
+         file.write(file_content_true + "\n")
+         file.write(file_content_false + "\n")
+         file.close()
+-        cmd = "./dependencies/file_write_verilog %s/selfsub/formula%s_true.v %s/selfsub/formula%s_true.v  > /dev/null 2>&1" % (
+-            tempfile.gettempdir(),var, tempfile.gettempdir(),var)
++        cmd = "/home/avziv3/work/manthan/dependencies/file_write_verilog %s %s > /dev/null 2>&1" % (true_self_sub_f, true_self_sub_f)
+         os.system(cmd)
+-        cmd = "./dependencies/file_write_verilog %s/selfsub/formula%s_false.v %s/selfsub/formula%s_false.v  > /dev/null 2>&1" % (
+-            tempfile.gettempdir(), var, tempfile.gettempdir(),var)
++        cmd = "/home/avziv3/work/manthan/dependencies/file_write_verilog %s %s > /dev/null 2>&1" % (false_self_sub_f, false_self_sub_f)
+         os.system(cmd)
+         return_string = 'wire outsub%s ;\nFORMULA%s_true F%s_ ( %s outsub%s);\n' % (
+             var, var, var, selfsub_inputstr, var)
+@@ -861,8 +854,6 @@ class Experiment:
+ 
+             if self.refine_var_log[var] > args.selfsubthres or refine_repeat_var[yi] == 10:
+                 if var not in self.selfsub:
+-                    if len(self.selfsub) == 0:
+-                        os.system("mkdir "+tempfile.gettempdir()+"/selfsub")
+                     self.selfsub.append(var)
+                     refineformula[var] = selfsubstitute(
+                         self.Xvar_map.keys(), Yvar, var, yi, self.selfsub, self.verilog_formula)
+@@ -972,7 +963,7 @@ class Experiment:
+                 refineformula[var] = betaformula
+ 
+                 if args.dumpdata:
+-                    dummping_data("\n\nc refine for %s" %(self.Yvar_map[var]))  
++                    dummping_data("\n\nc refine for %s" %(var+1))  
+                     temp_str = ''
+                     and_varibles = betaformula.split("&")
+                     for stri in and_varibles:
+@@ -980,11 +971,12 @@ class Experiment:
+                             if "~i" in stri:
+                                 temp_str += "-"
+                                 stri = stri.replace("~i","")
+-                            stri = int(stri.strip(" (").strip(" )").strip(" ").replace("i",""))
+-                            if stri in self.Yvar_map.keys():
+-                                temp_str += str(self.Yvar_map[stri])+" "
+-                            else:
+-                                temp_str += str(self.Xvar_map[stri])+" "
++                            stri = int(stri.strip(" (").strip(" )").strip(" ").replace("i","")) + 1
++                            temp_str += str(stri)+" "
++                            # if stri in self.Yvar_map.keys():
++                            #     temp_str += str(self.Yvar_map[stri])+" "
++                            # else:
++                            #     temp_str += str(self.Xvar_map[stri])+" "
+                     dummping_data(temp_str)
+ 
+                 del beta_varlist
+@@ -1129,8 +1121,7 @@ def sub_skolem(skolemformula, Xvar, Yvar, Yvar_order, verilog_formula, selfsub):
+     skolemcontent_write = ''
+     if len(selfsub) != 0:
+         for all_selfsub_var in selfsub:
+-            file_open = open(
+-                tempfile.gettempdir()+"/selfsub/formula%s_true.v" % (all_selfsub_var), "r")
++            file_open = open(os.path.join("/home/avziv3/work/verilog", "selfsub_formula%s_%s_true.v" % (inputfile_name, all_selfsub_var)), "r")
+             content = file_open.read()
+             file_open.close()
+             skolemcontent_write += "\n" + content
+@@ -1139,7 +1130,7 @@ def sub_skolem(skolemformula, Xvar, Yvar, Yvar_order, verilog_formula, selfsub):
+     f.write(verilog_formula)
+     f.write(skolemcontent_write)
+     f.close()
+-    cmd = "./dependencies/file_write_verilog %s %s > /dev/null 2>&1 " % (
++    cmd = "/home/avziv3/work/manthan/dependencies/file_write_verilog %s %s > /dev/null 2>&1 " % (
+         skolemformula, skolemformula)
+     os.system(cmd)
+ 
+@@ -1147,14 +1138,12 @@ def sub_skolem(skolemformula, Xvar, Yvar, Yvar_order, verilog_formula, selfsub):
+ 
+ def unate_skolemfunction(Xvar, Yvar, pos_unate, neg_unate):
+     if args.qdimacs:
+-    	inputfile_name = args.input.split('/')[-1][:-8]
++        inputfile_name = args.input.split('/')[-1][:-8]
+     else:
+-    	inputfile_name = args.input.split('/')[-1][:-2]
++        inputfile_name = args.input.split('/')[-1][:-2]
+     candidateskf = {}
+ 
+-    skolemformula = tempfile.gettempdir() + \
+-        '/' + inputfile_name + \
+-        "_skolem.v"  # F(X,Y')
++    skolemformula = os.path.join("/home/avziv3/work/verilog", "%s_skolem.v" % inputfile_name)
+     inputstr = 'module SKOLEMFORMULA ('
+     declarestr = ''
+     assignstr = ''
+@@ -1176,7 +1165,7 @@ def unate_skolemfunction(Xvar, Yvar, pos_unate, neg_unate):
+     f.write(assignstr)
+     f.write("endmodule")
+     f.close()
+-    cmd = "./dependencies/file_write_verilog %s %s > /dev/null 2>&1  " % (
++    cmd = "/home/avziv3/work/manthan/dependencies/file_write_verilog %s %s > /dev/null 2>&1  " % (
+         skolemformula, skolemformula)
+     os.system(cmd)
+ 
+@@ -1236,12 +1225,12 @@ def gen_weighted_cnf(cnf_content, Xvar_map, Yvar_map, allvar_map):
+ 
+ 
+ def convert_verilog(input):
+-	cmd = "./dependencies/readCnf %s > /dev/null 2>&1 " % (input)
+-	os.system(cmd)
+-	inputfile_name = args.input.split('/')[-1][:-8]
+-	os.remove(inputfile_name+"_dep.txt")
+-	os.system("rm *.noUnary")
+-	return inputfile_name+".v" , inputfile_name+"_var.txt"
++    cmd = "/home/avziv3/work/manthan/dependencies/readCnf %s > /dev/null 2>&1 " % (input)
++    os.system(cmd)
++    inputfile_name = args.input.split('/')[-1][:-8]
++    os.remove(inputfile_name+"_dep.txt")
++    os.system("rm *.noUnary")
++    return inputfile_name+".v" , inputfile_name+"_var.txt"
+ 
+ 
+ 
+@@ -1251,7 +1240,7 @@ def manthan(samples, maxSamples, seed, verb, varlistfile, weighted,verilog):
+     Yvar = []
+     varlist = [line.rstrip('\n')
+                for line in open(varlistfile)]  # Y variable list
+-    dg = nx.DiGraph()  # dag to handle dependencies
++    dg = nx.DiGraph()  # dag to handle/work/manthan/dependencies
+     flag = 0
+     verilog_formula = ''
+     with open(verilog, 'r') as f:
+@@ -1276,13 +1265,13 @@ def manthan(samples, maxSamples, seed, verb, varlistfile, weighted,verilog):
+     Xvar = np.array(Xvar)
+     Yvar = np.array(Yvar)
+     if args.logtime:
+-    	write_to_logfile("file : " + str(args.input))
++        write_to_logfile("file : " + str(args.input))
+     start = time.time()
+     pos_unate_tmp, neg_unate_tmp, Xvar_tmp, Yvar_tmp, Xvar_map, Yvar_map = preprocess(varlistfile,verilog)
+ 
+     # only if could not do preprocessing : proceed without preprocessing
+     if len(Xvar_tmp) == 0 or len(Yvar_tmp) == 0:
+-        cmd = "./dependencies/file_generation_cnf %s %s.cnf %s_mapping.txt  > /dev/null 2>&1" % (
++        cmd = "/home/avziv3/work/manthan/dependencies/file_generation_cnf %s %s.cnf %s_mapping.txt  > /dev/null 2>&1" % (
+             verilog, inputfile_name, inputfile_name)
+         os.system(cmd)
+         with open(inputfile_name + "_mapping.txt", 'r') as f:
+@@ -1308,7 +1297,7 @@ def manthan(samples, maxSamples, seed, verb, varlistfile, weighted,verilog):
+         neg_unate.append(list(Yvar_map.keys())[list(Yvar_map.values()).index(unate)])
+     
+     if args.logtime:
+-    	write_to_logfile("preprocesing time : " + str(time.time() - start))
++        write_to_logfile("preprocesing time : " + str(time.time() - start))
+ 
+     # if all Y variables are unate
+     if len(pos_unate) + len(neg_unate) == len(Yvar):
+@@ -1317,8 +1306,7 @@ def manthan(samples, maxSamples, seed, verb, varlistfile, weighted,verilog):
+         print("all Y variables are unates")
+         print("Solved !! done !")
+         unate_skolemfunction(Xvar, Yvar, pos_unate, neg_unate)
+-        skolemformula = tempfile.gettempdir() + \
+-            '/' + inputfile_name + "_skolem.v"
++        skolemformula = os.path.join("/home/avziv3/work/verilog", "%s_skolem.v" % inputfile_name)
+         exists = os.path.isfile(skolemformula)
+         if exists:
+             os.system("cp " + skolemformula +
+@@ -1360,10 +1348,10 @@ def manthan(samples, maxSamples, seed, verb, varlistfile, weighted,verilog):
+     allvar_map = np.array(allvar_map)
+     fixedvar = ''
+     for i in pos_unate:
+-        fixedvar += "%s 0\n" % (Yvar_map[i])
++        fixedvar += "%s 0\n" % (i+1)
+         unates.append(i)
+     for i in neg_unate:
+-        fixedvar += "-%s 0\n" % (Yvar_map[i])
++        fixedvar += "-%s 0\n" % (i+1)
+         unates.append(i)
+     
+     if args.dumpdata:
+@@ -1414,7 +1402,7 @@ def manthan(samples, maxSamples, seed, verb, varlistfile, weighted,verilog):
+         samples = get_sample_cms(allvar_map, sample_cnf_content, no_samples)
+ 
+     if args.logtime:
+-    	write_to_logfile("sampling time : " + str(time.time() - start_t))
++        write_to_logfile("sampling time : " + str(time.time() - start_t))
+ 
+     # phase two : learn candidate skolem functions using decision tree based
+     # algo
+@@ -1423,7 +1411,7 @@ def manthan(samples, maxSamples, seed, verb, varlistfile, weighted,verilog):
+     dg = learn_skf(samples, Xvar, Yvar, Xvar_map,Yvar_map, pos_unate, neg_unate, dg)
+     
+     if args.logtime:
+-    	write_to_logfile("Candidate time : " + str(time.time() - start_t))
++        write_to_logfile("Candidate time : " + str(time.time() - start_t))
+ 
+     # find order
+     Yvar_order = np.array(list(nx.topological_sort(dg)))
+@@ -1463,11 +1451,10 @@ def manthan(samples, maxSamples, seed, verb, varlistfile, weighted,verilog):
+             print('error formula unsat.. skolem functions generated')
+ 
+             if args.logtime:
+-            	write_to_logfile("refinement time : " + str(time.time() - start_t))
++                write_to_logfile("refinement time : " + str(time.time() - start_t))
+ 
+             start_t = time.time()
+-            skolemformula = tempfile.gettempdir(
+-            ) + '/' + inputfile_name + "_skolem.v"
++            skolemformula = os.path.join("/home/avziv3/work/verilog", "%s_skolem.v" % inputfile_name)
+             sub_skolem(skolemformula, Xvar, Yvar, Yvar_order, verilog_formula, ref.selfsub)
+             exists = os.path.isfile(skolemformula)
+             print("skolem function: %s_skolem.v" %(inputfile_name))
+@@ -1475,8 +1462,8 @@ def manthan(samples, maxSamples, seed, verb, varlistfile, weighted,verilog):
+                 os.system(
+                     "cp " + skolemformula + " " + inputfile_name + "_skolem.v")
+             if args.logtime:
+-            	write_to_logfile(
+-                	"reverse sub time : " + str(time.time() - start_t))
++                write_to_logfile(
++                    "reverse sub time : " + str(time.time() - start_t))
+             os.system("rm -rf selfsub")
+             break
+ 
+@@ -1522,8 +1509,8 @@ def manthan(samples, maxSamples, seed, verb, varlistfile, weighted,verilog):
+             refineformula, ref.refine_var_log, ref.selfsub = ref.refine(
+                 Experiment, refine_cnf_content, ind_var, sigma.modelx, sigma.modely, sigma.modelyp, refine_repeat_var)
+ 
+-            skolemformula = tempfile.gettempdir(
+-            ) + '/' + inputfile_name + "_skolem.v"
++           
++            skolemformula = os.path.join("/home/avziv3/work/verilog", "%s_skolem.v" % inputfile_name)
+ 
+             with open(skolemformula, 'r') as f:
+                 lines = f.readlines()
+@@ -1570,13 +1557,13 @@ def manthan(samples, maxSamples, seed, verb, varlistfile, weighted,verilog):
+                 print("not solved")
+                 break
+     if args.logtime:
+-    	write_to_logfile("total time : " + str(time.time() - start))
++        write_to_logfile("total time : " + str(time.time() - start))
+     exists = os.path.isfile("strash.txt")
+     if exists:
+-    	os.unlink("strash.txt")
++        os.unlink("strash.txt")
+     exists = os.path.isfile("variable_mapping.txt")
+     if exists:
+-    	os.unlink("variable_mapping.txt")
++        os.unlink("variable_mapping.txt")
+     return
+ 
+ 
+@@ -1614,19 +1601,26 @@ if __name__ == "__main__":
+ 
+     
+     if args.qdimacs:
+-    	verilog, varlistfile = convert_verilog(args.input)
++        verilog, varlistfile = convert_verilog(args.input)
+     
+     if args.verilog:
+-    	verilog = args.input
+-    	varlistfile = args.varlist
++        verilog = args.input
++        varlistfile = args.varlist
++
++    if args.dumpdata:
++        temp_f_for_truncate = open(args.dumpdata, "w")
++        temp_f_for_truncate.close()
+ 
+     if args.qdimacs or args.verilog:
+-    	print("starting Manthan")
++        print("starting Manthan")
+     else:
+-    	print("If you are providing qdimacs file as input, please use --qdimacs flag\n")
+-    	print("If you are providing verilog file and varlist of Y variable as inputs, please use --verilog flag\n")
+-    	exit()
++        print("If you are providing qdimacs file as input, please use --qdimacs flag\n")
++        print("If you are providing verilog file and varlist of Y variable as inputs, please use --verilog flag\n")
++        exit()
+ 
++    os.system("cd /home/avziv3/work/verilog")
++    os.system("mkdir %s_d" % args.input.split('/')[-1][:-8])
++    os.system("cd %s_d" % args.input.split('/')[-1][:-8])
+     manthan(
+         samples=args.samples,
+         maxSamples=args.maxSamples,
+@@ -1636,3 +1630,5 @@ if __name__ == "__main__":
+         weighted=args.weighted,
+         verilog = verilog
+         )
++    os.system("cd /home/avziv3/work/verilog")
++    os.system("rm -rf %s_d" % inputfile_name)
